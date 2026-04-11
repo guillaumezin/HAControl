@@ -1,0 +1,106 @@
+﻿
+# Strings for HAControl
+
+PLUGIN_HACONTROL
+	EN	Home Assistant controller
+	FR	Contrôle Domoticz
+
+PLUGIN_HACONTROL_DESC
+	EN	Control your Home Assistant devices from your Jive based player. Parameters are located in player settings
+	FR	Contrôle de vos périphériques Home Assistant depuis votre platine basée sur Jive. Le paramétrage se fait dans l'onglet platine
+
+PLUGIN_HACONTROL_PLAYER_SETTINGS
+	EN	Home Assistant Control Settings
+	FR	Réglages Home Assistant Control
+
+PLUGIN_HACONTROL_SETTINGS_ACCESS
+	EN	Communication with Home Assistant
+	FR	Communication avec Home Assistant
+
+PLUGIN_HACONTROL_SETTINGS_ADDRESS
+	EN	Home Assistant URL or IP address
+	FR	URL ou adresse IP de Home Assistant
+
+PLUGIN_HACONTROL_SETTINGS_USER
+	EN	Home Assistant user
+	FR	Utilisateur de Home Assistant
+
+PLUGIN_HACONTROL_SETTINGS_HTTPS
+	EN	Home Assistant URL or IP address websocket uses SSL
+	FR	L'URL ou l'adresse IP websocket de Home Assistant utilise SSL
+
+PLUGIN_HACONTROL_SETTINGS_PORT
+	EN	Home Assistant URL or IP address port
+	FR	Port de l'URL ou de l'adresse IP de Home Assistant
+
+PLUGIN_HACONTROL_SETTINGS_PASSWORD
+	EN	Home Assistant access token
+	FR	Jeton d'accès Home Assistant
+
+PLUGIN_HACONTROL_SETTINGS_DETAIL_PASSWORD
+	EN	<a target="_blank" href="https://my.home-assistant.io/redirect/profile_security/">Access token must be created at the bottom of user profile security page</a>
+	FR	<a target="_blank" href="https://my.home-assistant.io/redirect/profile_security/">Le jeton d'accès Home Assistant doit être créé au bas de la page sécurité du profil utilisateur</a>
+
+PLUGIN_HACONTROL_SETTINGS_SPECIAL
+	EN	Advanced settings
+	FR	Options avancées
+
+PLUGIN_HACONTROL_SETTINGS_DIMMERASONOFF
+	EN	Manage dimmers as simple switches
+	FR	Gérer les variateurs comme des boutons simples
+
+PLUGIN_HACONTROL_SETTINGS_BLINDSPERCENTAGEASONOFF
+	EN	Manage progressive blinds as simple opened/closed blinds
+	FR	Gérer les volets progressifs comme de simples volets ouverts/fermés
+
+PLUGIN_HACONTROL_SETTINGS_ONOFFDEVICE
+	EN	Entity id to synchronise with On/Off
+	FR	Id de l'entité à synchroniser aux On/Off
+
+PLUGIN_HACONTROL_SETTINGS_ONOFFDEVICEDOC
+	EN	Triggers the entity with this Id as the same time as the radio is turned On or Off<br/>Sends On/Off commands only, use an input button and an automation on Home Assistant for more complex needs<br />Empty to disable
+	FR	Déclenche l'entité avec cet Id en même temps que le poste radio est allumé ou éteint<br/>Envoie seulement des commandes On/Off, utilisez une entrée bouton et une automatisation Home Assistant pour les besoins plus complexes<br />Vide pour désactiver
+
+PLUGIN_HACONTROL_SETTINGS_FILTERBYNAME
+	EN	Dashboard
+	FR	Tableau de bord
+
+PLUGIN_HACONTROL_SETTINGS_FILTEREMPYDISABLE
+	EN	<a target="_blank" href="https://my.home-assistant.io/redirect/lovelace_dashboards/">You must create a Home Assistant dashboard</a> with entities you want to view on your radio
+	FR	<a target="_blank" href="https://my.home-assistant.io/redirect/lovelace_dashboards/">Vous devez créer sous Home Assistant un tableau de bord</a> avec les entités que vous voulez voir apparaître sur l'écran de votre platine
+
+PLUGIN_HACONTROL_ALARM
+	EN	Alarm
+	FR	Réveil
+
+PLUGIN_HACONTROL_SETTINGS_ALARM_GENERAL
+	EN	Entity id associated to every alarms
+	FR	Id de l'entité associée à toutes les alarmes
+
+PLUGIN_HACONTROL_SETTINGS_ALARM
+	EN	Entity id associated to alarm
+	FR	Id de l'entité associée à l'alarme
+
+PLUGIN_HACONTROL_SETTINGS_ALARMDOC
+	EN	Triggers the entity with this Id number as the same time as alarm<br/>Sends On/Off commands only, use an input button and an automation on Home Assistant for more complex needs<br />Empty to disable
+	FR	Déclenche l'entité avec cet Id en même temps que l'alarme<br/>Envoie seulement des commandes On/Off, utilisez une entrée bouton et une automatisation Home Assistant pour les besoins plus complexes<br />Vide pour désactiver
+
+PLUGIN_HACONTROL_SETTINGS_SNOOZE
+	EN	Entity id associated to snooze
+	FR	Id de l'entité associée au snooze 
+
+PLUGIN_HACONTROL_SETTINGS_SNOOZE_GENERAL
+	EN	Entity id associated to every snoozes
+	FR	Id de l'entité associée à tous les snoozes 
+
+PLUGIN_HACONTROL_SETTINGS_SNOOZEDOC
+	EN	Triggers the entity with this Id as the same time as snooze<br/>Sends On/Off commands only, use an input button and an automation on Home Assistant for more complex needs<br />Empty to disable
+	FR	Déclenche l'entité avec cet Id en même temps que la fonction snooze<br/>Envoie seulement des commandes On/Off, utilisez une entrée bouton et une automatisation Home Assistant pour les besoins plus complexes<br />Vide pour désactiver pour désactiver
+
+PLUGIN_HACONTROL_SETTINGS_SDT
+	EN	Custom Clock format strings
+	FR	Chaînes de format pour Custom Clock
+
+PLUGIN_HACONTROL_SETTINGS_SDTDOC
+	EN	Home Assistant control can expose values based on devices state to Custom Clock Helper, if you have SuperDateTime (weather.com version 5.9.42 onwards).<br/>Values must be given based on device name or device idx number.<br/>~nDevicename~Nameofjsonfield~<br/>~iIdxofdevice~Nameofjsonfield~<br/>For instance, ~nExternal Temp Sensor~Temp~ will be replaced by the current temperature reported by Home Assistant device named "External Temp Sensor".<br/>~i231~Temp~ same thing if 231 Idx points to the same device.<br/>You can have a look at <a target="_blank" href="https://www.domoticz.com/wiki/Domoticz_API/JSON_URL%27s">https://www.domoticz.com/wiki/Domoticz_API/JSON_URL's</a> to read Home Assistant JSON documentation or have a look at your available devices fields connecting to http(s)://domoticzurl:domoticzport/json.htm?type=devices<br/>For convenience, you can append functions to change returned value.<br/>~nDevicename~Nameofjsonfield~truncate~ to truncate a number.<br/>~iIdxofdevice~Nameofjsonfield~ceil~ for ceil function.<br/>~nDevicename~Nameofjsonfield~floor~ for floor function.<br/>~iIdxofdevice~Nameofjsonfield~round~ to round a number as integer.<br/>~nDevicename~Nameofjsonfield~round~1~ to round a number keeping one decimal (1 can be any positive integer).<br/>~iIdxofdevice~Nameofjsonfield~shorten~3~ to keep only the three first characters of the value (3 can be any positive integer).
+	FR	Home Assistant peut envoyer des valeurs basées sur l'état des dispositifs vers Custom Clock Helper, si vous avez SuperDateTime (version weather.com 5.9.42 ou plus récente).<br/>Les valeurs doivent être indiquées en se basant sur le nom ou le numéro idx du dispositif.<br/>~nNomdudispositif~Nomduchampjson~<br/>~iIdxdudispositif~Nomduchampjson~<br/>Par exemple, ~nCapteur de température exterieur~Temp~ sera remplacé par la température mesurée par le dispositif nommé "Capteur de température exterieur".<br/>~i231~Temp~ même chose si 231 corresponds au numéro Idx du même dispositif.<br/>Vous pouvez consulter <a target="_blank" href="https://www.domoticz.com/wiki/Domoticz_API/JSON_URL%27s">https://www.domoticz.com/wiki/Domoticz_API/JSON_URL's</a> pour la documentation JSON de Home Assistant ou consulter les champs disponibles pour vos dispositifs en vous connectant à http(s)://ursdedomoticz:portdedomoticz/json.htm?type=devices<br/>Par commoditié, vous pouvez ajouter des fonctions pour changer les valeurs obtenues.<br/>~nNomdudispositif~Nomduchampjson~truncate~ pour tronquer le nombre obtenu sans arrondi.<br/>~iIdxdudispositif~Nomduchampjson~ceil~ pour la fonction ceil sur un nombre.<br/>~nNomdudispositif~Nomduchampjson~floor~ pour la fonction floor sur un nombre.<br/>~iIdxdudispositif~Nomduchampjson~round~ pour arrondir un nombre vers sa valeur entière<br/>~nNomdudispositif~Nomduchampjson~round~1~ pour arrondir un nombre une décimale après la virgule (1 peut être n'importe quel entier positif).<br/>~iIdxdudispositif~Nomduchampjson~shorten~3~ pour ne garder que les 3 premiers caractères de la valeur obtenues (3 peut être n'importe quel entier positif).

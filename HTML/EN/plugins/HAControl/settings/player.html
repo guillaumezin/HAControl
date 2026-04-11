@@ -1,0 +1,84 @@
+[% BLOCK alarmSettingHAControl %]
+	[% WRAPPER settingSection %]
+                [% settingTitle1 = "PLUGIN_HACONTROL_ALARM" | string %]
+                [% settingTitle2 = "PLUGIN_HACONTROL_SETTINGS_ALARM" | string %]
+                [% settingTitle = settingTitle1 _ " " _ loop.count _ " - " _ settingTitle2 %]
+                [% settingName = "alarmId" _ alarm.id %]
+		[% WRAPPER settingGroup title=settingTitle desc="PLUGIN_HACONTROL_SETTINGS_ALARMDOC" %]
+                        <input type="text" name="[% settingName %]" id="[% settingName %]" value="[% alarm.alarm ? alarm.alarm : "0" %]"/>
+		[% END %]
+                [% settingTitle1 = "PLUGIN_HACONTROL_ALARM" | string %]
+                [% settingTitle2 = "PLUGIN_HACONTROL_SETTINGS_SNOOZE" | string %]
+                [% settingTitle = settingTitle1 _ " " _ loop.count _ " - " _ settingTitle2 %]
+                [% settingName = "snoozeId" _ alarm.id %]
+		[% WRAPPER settingGroup title=settingTitle desc="PLUGIN_HACONTROL_SETTINGS_SNOOZEDOC" %]
+                        <input type="text" name="[% settingName %]" id="[% settingName %]" value="[% alarm.snooze ? alarm.snooze : "0" %]"/>
+		[% END %]
+	[% END %]
+
+[% END %]
+
+[% PROCESS settings/header.html %]
+
+                [% WRAPPER setting title="PLUGIN_HACONTROL_SETTINGS_ADDRESS" desc="" %]
+                    <input type="text" name="pref_address" id="address" value="[% prefs.pref_address %]"/>
+                [% END %]
+                [% WRAPPER setting title="PLUGIN_HACONTROL_SETTINGS_HTTPS" desc="" %]
+                    <input type="checkbox" name="pref_https" id="https" value="1" [% IF prefs.pref_https %]checked="checked"[% END %]/>
+                [% END %]
+                [% WRAPPER setting title="PLUGIN_HACONTROL_SETTINGS_PASSWORD" desc="PLUGIN_HACONTROL_SETTINGS_DETAIL_PASSWORD" %]
+                    <input type="password" name="pref_password" id="password" value="[% prefs.pref_password %]"/>
+                [% END %]
+                [% WRAPPER setting title="PLUGIN_HACONTROL_SETTINGS_PORT" desc="" %]
+                    <input type="number" min="1" max="65535" name="pref_port" id="port" value="[% prefs.pref_port %]"/>
+                [% END %]
+
+<br/>
+
+                [% WRAPPER setting title="PLUGIN_HACONTROL_SETTINGS_FILTERBYNAME" desc="PLUGIN_HACONTROL_SETTINGS_FILTEREMPYDISABLE" %]
+                    <input type="text" name="pref_filterByName" id="filterByName" value="[% prefs.pref_filterByName %]"/>
+                [% END %]
+
+<br/>
+
+                [% WRAPPER setting title="PLUGIN_HACONTROL_SETTINGS_DIMMERASONOFF" desc="" %]
+                    <input type="checkbox" name="pref_dimmerAsOnOff" id="dimmerAsOnOff" value="1" [% IF prefs.pref_dimmerAsOnOff %]checked="checked"[% END %]/>
+                [% END %]
+                [% WRAPPER setting title="PLUGIN_HACONTROL_SETTINGS_BLINDSPERCENTAGEASONOFF" desc="" %]
+                    <input type="checkbox" name="pref_blindsPercentageAsOnOff" id="blindsPercentageAsOnOff" value="1" [% IF prefs.pref_blindsPercentageAsOnOff %]checked="checked"[% END %]/>
+                [% END %]
+
+<br/>
+
+                [% WRAPPER setting title="PLUGIN_HACONTROL_SETTINGS_ONOFFDEVICE" desc="PLUGIN_HACONTROL_SETTINGS_ONOFFDEVICEDOC" %]
+                    <input type="number" min="0" name="pref_deviceOnOff" id="deviceOnOff" value="[% prefs.pref_deviceOnOff %]"/>
+                [% END %]
+
+<br/>
+                <div class="alarmSection">
+                [% WRAPPER settingSection %]
+                    [% WRAPPER settingGroup title="PLUGIN_HACONTROL_SETTINGS_ALARM_GENERAL" desc="PLUGIN_HACONTROL_SETTINGS_ALARMDOC" %]
+                                    <input type="text" name="pref_generalAlarm" id="generalAlarm" value="[% prefs.pref_generalAlarm %]"/>
+                    [% END %]
+                    [% WRAPPER settingGroup title="PLUGIN_HACONTROL_SETTINGS_SNOOZE_GENERAL" desc="PLUGIN_HACONTROL_SETTINGS_ALARMDOC" %]
+                                    <input type="text" name="pref_generalSnooze" id="generalSnooze" value="[% prefs.pref_generalSnooze %]"/>
+                    [% END %]
+                [% END %]
+                </div>
+
+<br/>
+                
+                <div class="alarmSection">
+                [% FOREACH alarm = alarms %]
+                        [% PROCESS alarmSettingHAControl %]
+                        <br/>
+                [% END %]
+                </div>
+
+<br/>
+                [% WRAPPER setting title="PLUGIN_HACONTROL_SETTINGS_SDT" %]
+                    [% "PLUGIN_HACONTROL_SETTINGS_SDTDOC" | string %]
+                [% END %]
+<br/>
+
+[% PROCESS settings/footer.html %]

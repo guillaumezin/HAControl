@@ -67,7 +67,7 @@ sub _clean_entity_id_in_error {
     }
 
     $websockets{$client->id}->clear_entities_id_in_error();
-    $entity_id_in_error_timer{$client->id} = Slim::Utils::Timers::setTimer($client, Time::HiRes::time() + 2, \&_clean_entity_id_in_error);
+    $entity_id_in_error_timer{$client->id} = Slim::Utils::Timers::setTimer($client, Time::HiRes::time() + 600, \&_clean_entity_id_in_error);
 }
 
 sub initPref {
@@ -85,7 +85,7 @@ sub initPref {
             $prefs->client($client)->get('address') . ':' . $prefs->client($client)->get('port') . '/api/websocket';
         $log->debug('Setting URL to '. $url);
         $websockets{$client->id} = Plugins::HAControl::WebsocketHandler->new($url, $prefs->client($client)->get('password'), $prefs->client($client)->get('filterByName'), $log, sub { _buildMenu($client) });
-        $entity_id_in_error_timer{$client->id} = Slim::Utils::Timers::setTimer($client, Time::HiRes::time() + 2, \&_clean_entity_id_in_error);
+        $entity_id_in_error_timer{$client->id} = Slim::Utils::Timers::setTimer($client, Time::HiRes::time() + 600, \&_clean_entity_id_in_error);
     }
 }
 

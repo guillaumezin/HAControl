@@ -1,16 +1,14 @@
 package Plugins::HAControl::Entities;
-
 use strict;
 use warnings;
-
 use List::Util qw(all);
 
 sub new {
     my ($class) = @_;
     return bless {
-        _by_id     => {},   # index by _id
-        _by_commid => {},   # index by _commid
-        _list      => [],   # to iterate
+        _by_id      => {},   # index by _id (main list)
+        _by_commid  => {},   # index by _commid (main list)
+        _list       => [],   # main list
     }, $class;
 }
 
@@ -23,6 +21,7 @@ sub add {
 
 sub by_id {
     my ($self, $id) = @_;
+    # Cherche dans la liste principale d'abord, puis dans hidden
     return $self->{_by_id}{$id};
 }
 
@@ -43,9 +42,10 @@ sub count {
 
 sub clear {
     my ($self) = @_;
-    $self->{_by_id}     = {};
-    $self->{_by_commid} = {};
-    $self->{_list}      = [];
+    $self->{_by_id}       = {};
+    $self->{_by_commid}   = {};
+    $self->{_list}        = [];
+    $self->{_hidden}      = [];
 }
 
 sub all_services_received {
@@ -61,3 +61,5 @@ sub all_states_received {
 }
 
 1;
+
+__END__

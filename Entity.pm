@@ -10,6 +10,7 @@ sub new {
    my $self = {
         _id => shift,
         _commid => shift,
+        _hidden => shift,
         _state => '',
         _friendly_name => '',
         _domain => '',
@@ -118,11 +119,15 @@ sub boolean_state {
     }
 }
 
+sub is_hidden {
+    my ($self) = @_;
+    return $self->{_hidden};
+}
+
 sub is_state_received {
     my ($self) = @_;
     return $self->{_state_received};
 }
-
 
 sub min {
     my ($self, $min) = @_;
@@ -268,3 +273,5 @@ sub create_call_service {
 }
 
 1;
+
+__END__

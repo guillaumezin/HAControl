@@ -17,9 +17,9 @@ use Plugins::HAControl::Entities;
 use Plugins::HAControl::Entity;
 
 my %idxTimers  = ();
+my %entity_id_in_error_timer = ();
 my %websockets = ();
 my %menus = ();
-my %cachedResults = ();
 my $funcptr = undef;
 my @requestsQueue = ();
 my $requestProcessing = 0;
@@ -59,10 +59,15 @@ sub getPrefNames {
     return @prefNames;
 }
 
-sub _wsConnected {
-}
+sub _clean_entity_id_in_error {
+    my $client = shift;
 
-sub _wsConnected {
+    if (exists $entity_id_in_error_timer{$client->id}) {
+        Slim::Utils::Timers::killSpecific($entity_id_in_error_timer{$client->id});
+    }
+
+    $websockets{$client->id}->clear_entities_id_in_error();
+    $entity_id_in_error_timer{$client->id} = Slim::Utils::Timers::setTimer($client, Time::HiRes::time() + 2, \&_clean_entity_id_in_error);
 }
 
 sub initPref {
@@ -79,7 +84,8 @@ sub initPref {
             ($prefs->client($client)->get('https') ? 'wss://' : 'ws://') .
             $prefs->client($client)->get('address') . ':' . $prefs->client($client)->get('port') . '/api/websocket';
         $log->debug('Setting URL to '. $url);
-        $websockets{$client->id} = new Plugins::HAControl::WebsocketHandler($url, $prefs->client($client)->get('password'), $prefs->client($client)->get('filterByName'), $log, sub { _buildMenu($client) });
+        $websockets{$client->id} = Plugins::HAControl::WebsocketHandler->new($url, $prefs->client($client)->get('password'), $prefs->client($client)->get('filterByName'), $log, sub { _buildMenu($client) });
+        $entity_id_in_error_timer{$client->id} = Slim::Utils::Timers::setTimer($client, Time::HiRes::time() + 2, \&_clean_entity_id_in_error);
     }
 }
 
@@ -146,7 +152,7 @@ sub setToHA {
 
     _setToHA($client, $idx, $cmd, $level);
 
-    $request->setStatusProcessing();
+    $request->setStatusDone();
 }
 
 sub setToHATimer{
@@ -227,129 +233,131 @@ sub _buildMenu {
 
     foreach my $entity ( @entities ) {
         $log->debug('Test entry for id '.$entity->id());
-        if ($entity->is_selector()) {
-            $log->debug('Add selector entry for id '.$entity->id());
-            my @options = $entity->options();
-            my @choiceActions;
-            my $index = 0;
-            my $i = 0;
-            foreach my $option (@options) {
-                if ($option eq $entity->state()) {
-                    $index = $i;
+        if (!$entity->is_hidden()) {
+            if ($entity->is_selector()) {
+                $log->debug('Add selector entry for id '.$entity->id());
+                my @options = $entity->options();
+                my @choiceActions;
+                my $index = 0;
+                my $i = 0;
+                foreach my $option (@options) {
+                    if ($option eq $entity->state()) {
+                        $index = $i;
+                    }
+                    $i++;
+                    push @choiceActions,
+                    {
+                        player => 0,
+                        cmd    => ['setToHA'],
+                        params => {
+                            idx    => $entity->id(),
+                            cmd    => 'selector',
+                            level  => $option,
+                        },
+                    },
                 }
-                $i++;
-                push @choiceActions,
-                {
-                    player => 0,
-                    cmd    => ['setToHA'],
-                    params => {
-                        idx    => $entity->id(),
-                        cmd    => 'selector',
-                        level  => $option,
+                push @menu, {
+                    text          => $entity->friendly_name(),
+                    selectedIndex => $index,
+                    choiceStrings => [ @options ],
+                    actions  => {
+                        do => {
+                            choices => [ @choiceActions ],
+                        },
                     },
-                },
+                };
             }
-            push @menu, {
-                text          => $entity->friendly_name(),
-                selectedIndex => $index,
-                choiceStrings => [ @options ],
-                actions  => {
-                    do => {
-                        choices => [ @choiceActions ],
-                    },
-                },
-            };
-        }
-        elsif ($entity->is_number()) {
-            $log->debug('Add number entry for id '.$entity->id());
+            elsif ($entity->is_number()) {
+                $log->debug('Add number entry for id '.$entity->id());
 
-            push @menu, {
-                text     => $entity->friendly_name(),
-                nextWindow => 'parent',
-                input    => {
-                    initialText => $entity->state(),
-                    len => 1,
-                    allowedChars => '.0123456789',
-                },
-                window   => {
-                    text => $entity->friendly_name(),
-                },
-                actions  => {
-                    go => {
-                        player => 0,
-                        cmd    => ['setToHA'],
-                        params => {
-                            idx    => $entity->id(),
-                            cmd    => 'number',
-                            level  => '__TAGGEDINPUT__',
+                push @menu, {
+                    text     => $entity->friendly_name(),
+                    nextWindow => 'parent',
+                    input    => {
+                        initialText => $entity->state(),
+                        len => 1,
+                        allowedChars => '.0123456789',
+                    },
+                    window   => {
+                        text => $entity->friendly_name(),
+                    },
+                    actions  => {
+                        go => {
+                            player => 0,
+                            cmd    => ['setToHA'],
+                            params => {
+                                idx    => $entity->id(),
+                                cmd    => 'number',
+                                level  => '__TAGGEDINPUT__',
+                            },
                         },
                     },
-                },
-            };
-        }
-        elsif ($entity->is_slider() && !$prefs->client($client)->get('blindsPercentageAsOnOff')) {
-            $log->debug('Add slider entry for id '.$entity->id());
-            push @menu, {
-                text     => $entity->friendly_name(),
-                actions  => {
-                    go => {
-                        player => 0,
-                        cmd    => ['menuHADimmer'],
-                        params => {
-                            idx    => $entity->id(),
-                            level  => $entity->current_position(),
-                            min    => $entity->min(),
-                            max    => $entity->max(),
+                };
+            }
+            elsif ($entity->is_slider() && !$prefs->client($client)->get('blindsPercentageAsOnOff')) {
+                $log->debug('Add slider entry for id '.$entity->id());
+                push @menu, {
+                    text     => $entity->friendly_name(),
+                    actions  => {
+                        go => {
+                            player => 0,
+                            cmd    => ['menuHADimmer'],
+                            params => {
+                                idx    => $entity->id(),
+                                level  => $entity->current_position(),
+                                min    => $entity->min(),
+                                max    => $entity->max(),
+                            },
                         },
                     },
-                },
-            };
-        }
-        # Normal On/Off
-        elsif ($entity->is_on_off()) {
-            $log->debug('Add on/off entry for id '.$entity->id());
-            push @menu, {
-                text     => $entity->friendly_name(),
-                checkbox => $entity->boolean_state(),
-                actions  => {
-                    on   => {
-                        player => 0,
-                        cmd    => ['setToHA'],
-                        params => {
-                            idx    => $entity->id(),
-                            cmd    => 'on_off',
-                            level  => 1,
+                };
+            }
+            # Normal On/Off
+            elsif ($entity->is_on_off()) {
+                $log->debug('Add on/off entry for id '.$entity->id());
+                push @menu, {
+                    text     => $entity->friendly_name(),
+                    checkbox => $entity->boolean_state(),
+                    actions  => {
+                        on   => {
+                            player => 0,
+                            cmd    => ['setToHA'],
+                            params => {
+                                idx    => $entity->id(),
+                                cmd    => 'on_off',
+                                level  => 1,
+                            },
+                        },
+                        off  => {
+                            player => 0,
+                            cmd    => ['setToHA'],
+                            params => {
+                                idx    => $entity->id(),
+                                cmd    => 'on_off',
+                                level  => 0,
+                            },
                         },
                     },
-                    off  => {
-                        player => 0,
-                        cmd    => ['setToHA'],
-                        params => {
-                            idx    => $entity->id(),
-                            cmd    => 'on_off',
-                            level  => 0,
+                };
+            }
+            elsif ($entity->is_push()) {
+                push @menu, {
+                    text     => $entity->friendly_name(),
+                    radio    => 0,
+                    nextWindow => 'refresh',
+                    actions  => {
+                        do   => {
+                            player => 0,
+                            cmd    => ['setToHA'],
+                            params => {
+                                idx    => $entity->id(),
+                                cmd    => 'push',
+                                level  => 1,
+                            },
                         },
                     },
-                },
-            };
-        }
-        elsif ($entity->is_push()) {
-            push @menu, {
-                text     => $entity->friendly_name(),
-                radio    => 0,
-                nextWindow => 'refresh',
-                actions  => {
-                    do   => {
-                        player => 0,
-                        cmd    => ['setToHA'],
-                        params => {
-                            idx    => $entity->id(),
-                            cmd    => 'push',
-                            level  => 1,
-                        },
-                    },
-                },
-            };
+                };
+            }
         }
     }
 
@@ -441,7 +449,7 @@ sub setAlarmToHA {
         $idx = $alarms{$alarmId};
         $level = 0;
         if ($idx) {
-            _setToHA($client, $idx, $level);
+            _setToHA($client, $idx, $cmd, $level);
         }
         if ($generalAlarm) {
             _setToHA($client, $generalAlarm, $cmd, $level);
@@ -484,15 +492,7 @@ sub _manageMacroStringQueue {
         if (!$requestProcessing) {
             $log->debug('Processing request');
             my $client = $request->client();
-
-            if (defined $cachedResults{$client->id} && (time < $cachedResults{$client->id}[0])) {
-                $log->debug('Using cached results');
-                _macroStringResult($request, $cachedResults{$client->id}[1]);
-            }
-            else {
-                $request->setStatusProcessing();
-                $requestProcessing = 1;
-            }
+            _macroStringResult($request);
         }
         else {
             push @requestsQueue, $request;
@@ -528,13 +528,7 @@ sub _macroSubFunc {
         }
         elsif ($func eq 'round') {
             my $dec = $funcArg + 0;
-            my $val = 5*10**(-1*($dec + 1));
-            if (($replaceStr + 0.0) >= 0.0) {
-                $val += $replaceStr + 0.0;
-            }
-            else {
-                $val += $replaceStr + 0.0;
-            }
+            my $val = 5*10**(-1*($dec + 1)) + ($replaceStr + 0.0);
             if ($dec > 0) {
                 return sprintf('%.' . $dec . 'f', $val);
             }
@@ -585,52 +579,41 @@ sub _macroCallNextMacro {
 
 sub _macroStringResult {
     my $request = shift;
-    my $data = shift;
+    my $client = $request->client();
     my $format = $request->getParam('format');
 #     $format = 'test ~i216~Type~shorten~2~ ~nMode absence~Status~°C';
     my $result = $format;
 
-    if (defined $data) {
-        $log->debug('Search in results for ' . $format);
-        my @jsonElements = @{ $data };
-        while ($format =~ /(~n(.+?)~(\S+?)(~(\S+?))?(~(\S+?))?~)/g) {
-            $log->debug('Got match name');
-            my $whole = $1;
-            my $name = $2;
-            my $element = $3;
-            my $func = $5;
-            my $funcArg = $7;
-            foreach my $f (@jsonElements) {
-                if ($f->{'Name'} eq $name) {
-                    $log->debug('Found element name ' . $name);
-                    if (defined $f->{$element}) {
-                        my $replaceStr = _macroSubFunc($f->{$element}, $func, $funcArg);
-                        $log->debug('Will replace by: ' . $replaceStr);
-                        $result =~ s/${whole}/${replaceStr}$1/;
-                    }
-                }
-            }
+    $log->debug('Search in results for ' . $format);
+    while ($format =~ /(~n(.+?)(~(\S+?))?(~(\S+?))?~)/g) {
+        $log->debug('Got match name');
+        my $whole = $1;
+        my $id = $2;
+        my $func = $4;
+        my $funcArg = $6;
+
+        if ($websockets{$client->id}->is_entity_id_in_error($id)) {
+            $log->debug('Skip ' . $id);
+            next;
+        }
+
+        my $entity = $websockets{$client->id}->entity_by_id($id);
+        if ($entity) {
+            $log->debug('Found element name ' . $id);
+            my $replaceStr = _macroSubFunc($entity->state(), $func, $funcArg);
+            $log->debug('Will replace by: ' . $replaceStr);
+            $result =~ s/\Q${whole}\E/${replaceStr}/;
+        }
+        else {
+            $request->setStatusProcessing();
+            $requestProcessing = 1;
+            $websockets{$client->id}->subscribe_hidden_entity($id, sub{ _macroStringResult($request) });
+            return;
         }
     }
 
     _macroCallNextMacro($request, $result);
     _manageMacroStringQueue(undef);
-}
-
-sub _getEntitiesFromHACallback {
-    my $request = shift;
-    my $client = $request->client();
-
-    my @entities = $websockets{$client->id}->entities();
-
-    $log->debug('Got answer from HA after get entities');
-
-    #if ($decoded->{'result'}) {
-    #    $results = $decoded->{'result'};
-    #    $cachedResults{$client->id} = [time + CACHE_TIME, $results];
-    #}
-
-    #_macroStringResult($request, $results);
 }
 
 sub macroString {
@@ -641,10 +624,7 @@ sub macroString {
     $log->debug('Inside CLI request macroString for ' . $format . ' status ' . $request->getStatusText());
 
     # Check that there is a pattern for us
-    if (
-        ($format =~ m/~i[0-9]+?~\S+~/)
-        || ($format =~ m/~n.+?~\S+~/)
-    ) {
+    if ($format =~ m/~.+?~\S+~/) {
         _manageMacroStringQueue($request);
     }
     # No pattern, jump to next dispatched sdtMacroString

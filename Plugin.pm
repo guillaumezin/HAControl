@@ -581,11 +581,11 @@ sub _macroStringResult {
     my $request = shift;
     my $client = $request->client();
     my $format = $request->getParam('format');
-#     $format = 'test ~i216~Type~shorten~2~ ~nMode absence~Status~°C';
+#     $format = 'test ~sensor.ebusd_f47_outsidetemp_temp~shorten~2~';
     my $result = $format;
 
     $log->debug('Search in results for ' . $format);
-    while ($format =~ /(~n(.+?)(~(\S+?))?(~(\S+?))?~)/g) {
+    while ($format =~ /(~(\S+?)(~(\S+?))?(~(\S+?))?~)/g) {
         $log->debug('Got match name');
         my $whole = $1;
         my $id = $2;
@@ -619,12 +619,12 @@ sub _macroStringResult {
 sub macroString {
     my $request = shift;
     my $format = $request->getParam('format');
-#     $format = 'test ~i216~Type~shorten~2~ ~nMode absence~Status~°C';
+#     $format = 'test ~sensor.ebusd_f47_outsidetemp_temp~shorten~2~';
 
     $log->debug('Inside CLI request macroString for ' . $format . ' status ' . $request->getStatusText());
 
     # Check that there is a pattern for us
-    if ($format =~ m/~.+?~\S+~/) {
+    if ($format =~ m/~\S+~/) {
         _manageMacroStringQueue($request);
     }
     # No pattern, jump to next dispatched sdtMacroString

@@ -258,7 +258,7 @@ sub _ws_callback {
         my $cb = $self->{_subscribe_hidden_callback};
         if ($cb) {
             $self->_add_entities_id_in_error($self->{_hidden_entity_id});
-            $self->{_log}->debug('Calling error callback');
+            $self->{_log}->debug('Calling callback');
             $cb->();
             $self->{_subscribe_hidden_callback} = undef;
         }

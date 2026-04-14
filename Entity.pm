@@ -25,6 +25,7 @@ sub new {
         _is_number => 0,
         _current_position => 0,
         _is_selector => 0,
+        _is_press => 0,
         _min => 0,
         _max => 100,
         _step => 1,
@@ -43,6 +44,9 @@ sub analyse_services {
 
     if (any { $_ eq "cover.open_cover" } @{ $services }) {
         $self->{_is_cover} = 1;
+    }
+    if (any { $_ eq "input_button.press" } @{ $services }) {
+        $self->{_is_press} = 1;
     }
     if (any { $_ eq "homeassistant.turn_on" } @{ $services }) {
         $self->{_is_turn_on} = 1;
@@ -216,8 +220,14 @@ sub _translate_service_on_off {
     }
 }
 
-sub is_push {
+sub is_press {
     my ($self) = @_;
+    if ($self->{_is_press}) {
+        return 1;
+    }
+    elsif (!$self->{_is_turn_on} && $self->{_is_turn_off}) {
+        return 0;
+    }
     return $self->{_is_turn_on} && ! $self->{_is_turn_off};
 }
 
@@ -265,6 +275,15 @@ sub create_call_service {
     }
     elsif (($cmd eq 'slider') || ($cmd eq 'number'))  {
         return '"type":"call_service","domain":"'.$self->domain().'","service":"set_value","service_data":{"entity_id":"'.$self->id().'","value":'.$level.'}';
+    }
+    elsif ($cmd eq 'press')  {
+        if ($self->{_is_press}) {
+            return '"type":"call_service","domain":"input_button","service":"press","service_data":{"entity_id":"'.$self->id().'"}';
+        }
+        elsif (!$self->{_is_turn_on} && $self->{_is_turn_off}) {
+            return '"type":"call_service","domain":"'.$self->domain().'","service":"turn_off","service_data":{"entity_id":"'.$self->id().'"}';
+        }
+        return '"type":"call_service","domain":"'.$self->domain().'","service":"turn_on","service_data":{"entity_id":"'.$self->id().'"}';
     }
     else {
         my $boolean_level = $self->_translate_service_on_off($level);

@@ -312,6 +312,24 @@ sub _buildMenu {
                     },
                 };
             }
+            elsif ($entity->is_press()) {
+                push @menu, {
+                    text     => $entity->friendly_name(),
+                    radio    => 0,
+                    nextWindow => 'refresh',
+                    actions  => {
+                        do   => {
+                            player => 0,
+                            cmd    => ['setToHA'],
+                            params => {
+                                idx    => $entity->id(),
+                                cmd    => 'press',
+                                level  => 1,
+                            },
+                        },
+                    },
+                };
+            }
             # Normal On/Off
             elsif ($entity->is_on_off()) {
                 $log->debug('Add on/off entry for id '.$entity->id());
@@ -335,24 +353,6 @@ sub _buildMenu {
                                 idx    => $entity->id(),
                                 cmd    => 'on_off',
                                 level  => 0,
-                            },
-                        },
-                    },
-                };
-            }
-            elsif ($entity->is_push()) {
-                push @menu, {
-                    text     => $entity->friendly_name(),
-                    radio    => 0,
-                    nextWindow => 'refresh',
-                    actions  => {
-                        do   => {
-                            player => 0,
-                            cmd    => ['setToHA'],
-                            params => {
-                                idx    => $entity->id(),
-                                cmd    => 'push',
-                                level  => 1,
                             },
                         },
                     },

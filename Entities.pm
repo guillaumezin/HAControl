@@ -16,13 +16,18 @@ sub add {
     my ($self, $entity) = @_;
     push @{ $self->{_list} }, $entity;
     $self->{_by_id}    { $entity->{_id}     } = $entity;
-    $self->{_by_commid}{ $entity->{_commid} } = $entity;
 }
 
 sub by_id {
     my ($self, $id) = @_;
     # Cherche dans la liste principale d'abord, puis dans hidden
     return $self->{_by_id}{$id};
+}
+
+sub commid {
+    my ($self, $entity, $commid) = @_;
+    $entity->commid($commid);
+    $self->{_by_commid}{ $commid } = $entity;
 }
 
 sub by_commid {

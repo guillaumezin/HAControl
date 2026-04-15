@@ -479,6 +479,7 @@ sub setAlarmToHA {
     }
 }
 
+#TODO : à améliorer, "Processing request" une seule fois, ensuite je n'ai que du "Already processing"
 sub _manageMacroStringQueue {
     my $request = shift;
 

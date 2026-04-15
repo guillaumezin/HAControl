@@ -9,8 +9,8 @@ sub new {
    my $class = shift;
    my $self = {
         _id => shift,
-        _commid => shift,
         _hidden => shift,
+        _commid => 0,
         _state => '',
         _friendly_name => '',
         _domain => '',

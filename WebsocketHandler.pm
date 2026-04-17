@@ -2,6 +2,7 @@ package Plugins::HAControl::WebsocketHandler;
 
 use JSON::XS::VersionOneAndTwo;
 use Encode qw(encode_utf8);
+use Scalar::Util qw(weaken);
 use Slim::Networking::SimpleWS;
 use Slim::Utils::Timers;
 use Plugins::HAControl::Entity;
@@ -57,6 +58,11 @@ sub DESTROY {
 
 sub _connected_callback {
     my ($self) = @_;
+
+    if (!defined($self)) {
+        return;
+    }
+
     $self->{_log}->debug('Connected');
 }
 
@@ -92,6 +98,11 @@ sub _send_with_id{
 
 sub _ws_callback {
     my ($self, $buf) = @_;
+
+    if (!defined($self)) {
+        return;
+    }   
+    
     $self->{_log}->debug('Message: ' . $buf);
     my $decoded = eval { decode_json(encode_utf8($buf)) };
     if ($@) {
@@ -373,13 +384,21 @@ sub send_command {
 
 sub _error_callback {
     my ($self) = @_;
+
+    if (!defined($self)) {
+        return;
+    }
+    
+    my $weak_self = $self;
+    weaken($weak_self);    
+
     if ($self->{_mode}) {
         $self->{_log}->error('Error during communication');
     }
     else {
         $self->{_log}->error('Error during connection or auth, check token in configuration');
     }
-    $self->{_timer} = Slim::Utils::Timers::setTimer(undef, Time::HiRes::time() + 10, sub { $self->connect() });
+    $self->{_timer} = Slim::Utils::Timers::setTimer(undef, Time::HiRes::time() + 10, sub { eval{$weak_self->connect()}; if ($@) {$weak_self->{_log}->error("Error in reconnect timer: $@");} });
 }
 
 sub subscribe_hidden_entity {
@@ -394,16 +413,23 @@ sub subscribe_hidden_entity {
 
 sub connect {
     my ($self) = @_;
+    
+    if (!defined($self)) {
+        return;
+    }
+    
+    my $weak_self = $self;
+    weaken($weak_self);    
 
     $self->close();
 
     $self->{_log}->debug('Opening websocket ' . $self->{_url});
     $self->{_open} = 1;
-    my $ws = Slim::Networking::SimpleWS->new($self->{_url}, sub { $self->_connected_callback(@_) }, sub { $self->_error_callback(@_) });
+    my $ws = Slim::Networking::SimpleWS->new($self->{_url}, sub { eval {$weak_self->_connected_callback(@_)}; if ($@) {$weak_self->{_log}->error("Error in _connected_callback: $@");} }, sub { eval {$weak_self->_error_callback(@_)}; if ($@) {$weak_self->{_log}->error("Error in _error_callback on new: $@");} });
     $self->{_ws} = $ws;
-    $self->{_ws}->listenAsync(sub { $self->_ws_callback(@_) }, sub { $self->_error_callback(@_) });
-    #$self->{_ws}->listenAsync(sub { eval {$self->_ws_callback(@_)} }, sub { eval {$self->_error_callback(@_) } });
-    #$self->{_ws}->listenAsync(sub { eval {$self->_ws_callback(@_)}; if ($@) {$self->{_log}->error("Error in _ws_callback : $@");} }, sub { eval {$self->_error_callback(@_)}; if ($@) {$self->{_log}->error("Error in _error_callback : $@");} });
+    #$self->{_ws}->listenAsync(sub { $weak_self->_ws_callback(@_) }, sub { $weak_self->_error_callback(@_) });
+    #$self->{_ws}->listenAsync(sub { eval {$weak_self->_ws_callback(@_)} }, sub { eval {$weak_self->_error_callback(@_) } });
+    $self->{_ws}->listenAsync(sub { eval {$weak_self->_ws_callback(@_)}; if ($@) {$weak_self->{_log}->error("Error in _ws_callback: $@");} }, sub { eval {$weak_self->_error_callback(@_)}; if ($@) {$weak_self->{_log}->error("Error in _error_callback on listenAsync: $@");} });
 }
 
 sub close {

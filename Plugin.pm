@@ -4,6 +4,8 @@ use strict;
 
 use base qw(Slim::Plugin::Base);
 use JSON::XS::VersionOneAndTwo;
+use POSIX qw(ceil floor);
+use Scalar::Util qw(weaken);
 use Slim::Control::Request;
 use Slim::Networking::SimpleAsyncHTTP;
 use Slim::Utils::Log;
@@ -11,7 +13,6 @@ use Slim::Utils::Timers;
 use Slim::Utils::Prefs;
 use Time::HiRes;
 use Slim::Utils::Strings qw (string);
-use POSIX qw(ceil floor);
 use Plugins::HAControl::WebsocketHandler;
 use Plugins::HAControl::Entities;
 use Plugins::HAControl::Entity;
@@ -84,7 +85,9 @@ sub initPref {
             ($prefs->client($client)->get('https') ? 'wss://' : 'ws://') .
             $prefs->client($client)->get('address') . ':' . $prefs->client($client)->get('port') . '/api/websocket';
         $log->debug('Setting URL to '. $url);
-        $websockets{$client->id} = Plugins::HAControl::WebsocketHandler->new($url, $prefs->client($client)->get('password'), $prefs->client($client)->get('filterByName'), $log, sub { _buildMenu($client) }, sub { _buildMenu($client) });
+        my $weak_client = $client;
+        weaken($weak_client);    
+        $websockets{$client->id} = Plugins::HAControl::WebsocketHandler->new($url, $prefs->client($client)->get('password'), $prefs->client($client)->get('filterByName'), $log, sub { _buildMenu($weak_client) }, sub { _buildMenu($weak_client) });
         $entity_id_in_error_timer{$client->id} = Slim::Utils::Timers::setTimer($client, Time::HiRes::time() + 600, \&_clean_entity_id_in_error);
     }
 }
@@ -226,6 +229,11 @@ sub _strMatch {
 
 sub _buildMenu {
     my $client = shift;
+    
+    if (!defined($client)) {
+        return;
+    }
+
     my @menu;
 
     my @entities = $websockets{$client->id}->entities();
@@ -513,13 +521,14 @@ sub _macroSubFunc {
     my $funcArg = shift;
     my $result = eval {
         if ($func eq 'truncate') {
-            my $dec = $funcArg + 0;
-            my $val = $replaceStr + 0.0;
+            my $dec = $funcArg + 0; 
             if ($dec > 0) {
-                return sprintf('%.' . $dec . 'f', $val);
+                my $val = $replaceStr + 0.0;
+                my $factor = 10**$dec;
+                return ($val < 0) ? ceil($val*$factor)/$factor : floor($val*$factor)/$factor;
             }
             else {
-                return sprintf('%d', $val);
+                return $replaceStr; 
             }
         }
         elsif ($func eq 'ceil') {
@@ -529,13 +538,14 @@ sub _macroSubFunc {
             return sprintf('%d', floor($replaceStr + 0.0));
         }
         elsif ($func eq 'round') {
-            my $dec = $funcArg + 0;
-            my $val = 5*10**(-1*($dec + 1)) + ($replaceStr + 0.0);
+            my $dec = $funcArg + 0; 
             if ($dec > 0) {
-                return sprintf('%.' . $dec . 'f', $val);
+                my $val = $replaceStr + 0.0;
+                my $factor = 10**$dec;
+                return ($val < 0) ? ceil($val*$factor-0.5)/$factor : floor($val*$factor+0.5)/$factor;
             }
             else {
-                return sprintf('%d', $val);
+                return $replaceStr; 
             }
         }
         elsif ($func eq 'shorten') {
@@ -609,7 +619,7 @@ sub _macroStringResult {
         else {
             $request->setStatusProcessing();
             $requestProcessing = 1;
-            $websockets{$client->id}->subscribe_hidden_entity($id, sub{ _macroStringResult($request) });
+            $websockets{$client->id}->subscribe_hidden_entity($id, sub { _macroStringResult($request) });
             return;
         }
     }

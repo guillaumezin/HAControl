@@ -26,7 +26,6 @@ sub new {
         _on_error => shift,
         _on_init => shift,
         _on_change => shift,
-        _auth => 0,
         _id => 1,
         _backupid => 0,
         _mode => MODE_NONE,
@@ -106,7 +105,6 @@ sub _ws_callback {
         $self->{_ws}->send($msg);
     }
     elsif ($decoded->{'type'} eq 'auth_ok') {
-        $self->{_auth} = 1;
         $self->{_mode} = MODE_GET_LIST_BOARDS;
         my $msg = '"type":"lovelace/dashboards/list"';
         $self->_send_with_id($msg);
@@ -324,6 +322,7 @@ sub entity_by_id {
 
 sub _enqueue {
     my ($self, $msg, $mode, $entity) = @_;
+    $self->{_log}->debug('Enqueue');
     push @{ $self->{_queue} }, $msg;
     push @{ $self->{_queue_mode} }, $mode // $self->{_mode};
     push @{ $self->{_queue_entity} }, $entity;
@@ -332,6 +331,7 @@ sub _enqueue {
 sub _send_next {
     my ($self) = @_;
     return unless @{ $self->{_queue} };
+    $self->{_log}->debug('Send next');
     my $msg  = shift @{ $self->{_queue} };
     my $mode = shift @{ $self->{_queue_mode} };
     my $entity = shift @{ $self->{_queue_entity} };
@@ -346,7 +346,9 @@ sub _send_or_enqueue {
         $self->_send_with_id($msg, $entity);
     } else {
         $self->_enqueue($msg, $mode, $entity);
-        $self->connect() unless $self->{_open};
+        if (!$self->{_open}) {
+            $self->connect();
+        }
     }
 }
 
@@ -375,16 +377,14 @@ sub _error_callback {
         $self->{_log}->error('Error during communication');
     }
     else {
-        $self->{_log}->error('Error during auth, check token in configuration');
+        $self->{_log}->error('Error during connection or auth, check token in configuration');
     }
-    $self->{_timer} = Slim::Utils::Timers::setTimer($self, Time::HiRes::time() + 10, sub { $self->connect() });
+    $self->{_timer} = Slim::Utils::Timers::setTimer(undef, Time::HiRes::time() + 10, sub { $self->connect() });
 }
 
-#TODO : mieux gérer le id pour qu'il soit généré au moment de l'envoi et pas au moment de la mise dans la queue
 sub subscribe_hidden_entity {
     my ($self, $id, $cb) = @_;
 
-    $self->{_backupid} = $self->{_id}++;
     $self->{_log}->debug('Trigger get_services for '.$id);
     $self->{_hidden_entity_id} = $id;
     $self->{_subscribe_hidden_callback} = $cb;
@@ -398,11 +398,12 @@ sub connect {
     $self->close();
 
     $self->{_log}->debug('Opening websocket ' . $self->{_url});
+    $self->{_open} = 1;
     my $ws = Slim::Networking::SimpleWS->new($self->{_url}, sub { $self->_connected_callback(@_) }, sub { $self->_error_callback(@_) });
     $self->{_ws} = $ws;
-    $self->{_open} = 1;
-    #$self->{_ws}->listenAsync(sub { $self->_normal_callback(@_) }, sub { $self->_error_callback(@_) });
-    $self->{_ws}->listenAsync(sub { eval {$self->_ws_callback(@_)}; if ($@) {$self->{_log}->error("Error in _ws_callback : $@");} }, sub { $self->_error_callback(@_) });
+    $self->{_ws}->listenAsync(sub { $self->_ws_callback(@_) }, sub { $self->_error_callback(@_) });
+    #$self->{_ws}->listenAsync(sub { eval {$self->_ws_callback(@_)} }, sub { eval {$self->_error_callback(@_) } });
+    #$self->{_ws}->listenAsync(sub { eval {$self->_ws_callback(@_)}; if ($@) {$self->{_log}->error("Error in _ws_callback : $@");} }, sub { eval {$self->_error_callback(@_)}; if ($@) {$self->{_log}->error("Error in _error_callback : $@");} });
 }
 
 sub close {

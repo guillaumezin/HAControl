@@ -3,7 +3,7 @@
 
 PLUGIN_HACONTROL
 	EN	Home Assistant controller
-	FR	Contrôle Domoticz
+	FR	Contrôle Home Assistant
 
 PLUGIN_HACONTROL_DESC
 	EN	Control your Home Assistant devices from your Jive based player. Parameters are located in player settings

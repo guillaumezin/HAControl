@@ -84,7 +84,7 @@ sub initPref {
             ($prefs->client($client)->get('https') ? 'wss://' : 'ws://') .
             $prefs->client($client)->get('address') . ':' . $prefs->client($client)->get('port') . '/api/websocket';
         $log->debug('Setting URL to '. $url);
-        $websockets{$client->id} = Plugins::HAControl::WebsocketHandler->new($url, $prefs->client($client)->get('password'), $prefs->client($client)->get('filterByName'), $log, sub { _buildMenu($client) });
+        $websockets{$client->id} = Plugins::HAControl::WebsocketHandler->new($url, $prefs->client($client)->get('password'), $prefs->client($client)->get('filterByName'), $log, sub { _buildMenu($client) }, sub { _buildMenu($client) });
         $entity_id_in_error_timer{$client->id} = Slim::Utils::Timers::setTimer($client, Time::HiRes::time() + 600, \&_clean_entity_id_in_error);
     }
 }
@@ -110,6 +110,7 @@ sub resetPref {
         $websockets{$client->id}->close();
         delete $websockets{$client->id};
     }
+    initPref($client);
 }
 
 sub _setToHACallback {

@@ -278,7 +278,7 @@ sub create_call_service {
     }
     elsif ($cmd eq 'press')  {
         if ($self->{_is_press}) {
-            return '"type":"call_service","domain":"input_button","service":"press","service_data":{"entity_id":"'.$self->id().'"}';
+            return '"type":"call_service","domain":"'.$self->domain().'","service":"press","service_data":{"entity_id":"'.$self->id().'"}';
         }
         elsif (!$self->{_is_turn_on} && $self->{_is_turn_off}) {
             return '"type":"call_service","domain":"'.$self->domain().'","service":"turn_off","service_data":{"entity_id":"'.$self->id().'"}';

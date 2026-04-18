@@ -303,7 +303,7 @@ sub _buildMenu {
                     },
                 };
             }
-            elsif ($entity->is_slider() && !$prefs->client($client)->get('blindsPercentageAsOnOff')) {
+            elsif (($entity->is_cover_slider() && !$prefs->client($client)->get('blindsPercentageAsOnOff')) || ($entity->is_light_slider() && !$prefs->client($client)->get('dimmerAsOnOff'))) {
                 $log->debug('Add slider entry for id '.$entity->id());
                 push @menu, {
                     text     => $entity->friendly_name(),

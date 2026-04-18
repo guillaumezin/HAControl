@@ -21,13 +21,13 @@ sub new {
         _is_turn_off => 0,
         _is_cover => 0,
         _is_cover_position => 0,
-        _is_setpoint => 0,
+        _is_light_percent => 0,
         _is_number => 0,
         _current_position => 0,
         _is_selector => 0,
         _is_press => 0,
         _min => 0,
-        _max => 100,
+        _max => 255,
         _step => 1,
         _options => undef,
    };
@@ -53,6 +53,9 @@ sub analyse_services {
     }
     if (any { $_ eq "homeassistant.turn_off" } @{ $services }) {
         $self->{_is_turn_off} = 1;
+    }
+    if (any { $_ eq "light.turn_on" } @{ $services }) {
+        $self->{_is_light_percent} = 1;
     }
     if (any { $_ eq "cover.set_cover_position" } @{ $services }) {
         $self->{_is_cover_position} = 1;
@@ -138,7 +141,7 @@ sub min {
 
     if (@_ > 1) {
         if (defined $min) {
-            $self->{_min} = $min;
+            $self->{_min} = int($min);
         }
         return $self;
     }
@@ -151,7 +154,7 @@ sub max {
 
     if (@_ > 1) {
         if (defined $max) {
-            $self->{_max} = $max;
+            $self->{_max} = int($max);
         }
         return $self;
     }
@@ -159,30 +162,33 @@ sub max {
     return $self->{_max};
 }
 
-sub step {
-    my ($self, $step) = @_;
-
-    if (@_ > 1) {
-        if (defined $step) {
-            $self->{_step} = $step;
-        }
-        return $self;
-    }
-
-    return $self->{_step};
-}
-
 sub current_position {
     my ($self, $current_position) = @_;
 
     if (@_ > 1) {
         if (defined $current_position) {
-            $self->{_current_position} = $current_position;
+            $self->{_current_position} = int($current_position);
+        }
+        else {
+            $self->{_current_position} = 0;
+        }
+        return $current_position;
+    }
+
+    return $self->{_current_position};
+}
+
+sub step {
+    my ($self, $step) = @_;
+
+    if (@_ > 1) {
+        if (defined $step) {
+            $self->{_step} = int($step);
         }
         return $self;
     }
 
-    return $self->{_current_position};
+    return $self->{_step};
 }
 
 sub is_number {
@@ -231,7 +237,12 @@ sub is_press {
     return $self->{_is_turn_on} && ! $self->{_is_turn_off};
 }
 
-sub is_slider {
+sub is_light_slider {
+    my ($self) = @_;
+    return $self->{_is_light_percent};
+}
+
+sub is_cover_slider {
     my ($self) = @_;
     return $self->{_is_cover_position};
 }
@@ -270,8 +281,18 @@ sub create_call_service {
     if ($cmd eq 'selector') {
         return '"type":"call_service","domain":"'.$self->domain().'","service":"select_option","service_data":{"entity_id":"'.$self->id().'","option":"'.$level.'"}';
     }
-    elsif (($cmd eq 'slider') && $self->_is_cover_position) {
+    elsif (($cmd eq 'slider') && $self->{_is_cover_position}) {
         return '"type":"call_service","domain":"'.$self->domain().'","service":"set_cover_position","service_data":{"entity_id":"'.$self->id().'","position":'.$level.'}';
+    }
+    elsif (($cmd eq 'slider') && $self->{_is_light_percent}) {
+        my $boolean_level = $self->_translate_service_on_off($level);
+        if ($level == 0) {
+            return '"type":"call_service","domain":"'.$self->domain().'","service":"'.$boolean_level.'","service_data":{"entity_id":"'.$self->id().'"}';
+        }
+        else {
+            my $level_pct = int(100*$level/($self->{_max}-$self->{_min}));
+            return '"type":"call_service","domain":"'.$self->domain().'","service":"'.$boolean_level.'","service_data":{"entity_id":"'.$self->id().'","brightness_pct":'.$level_pct.'}';
+        }
     }
     elsif (($cmd eq 'slider') || ($cmd eq 'number'))  {
         return '"type":"call_service","domain":"'.$self->domain().'","service":"set_value","service_data":{"entity_id":"'.$self->id().'","value":'.$level.'}';

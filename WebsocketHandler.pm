@@ -24,9 +24,9 @@ sub new {
         _token => shift,
         _dashboard => shift,
         _log => shift,
-        _on_error => shift,
         _on_init => shift,
         _on_change => shift,
+        _on_error => shift,
         _id => 1,
         _backupid => 0,
         _mode => MODE_NONE,
@@ -244,7 +244,12 @@ sub _ws_callback {
                     $entity->step($attr->{'step'});
                 }
                 if ($attr->{'current_position'}) {
+                    $self->{_log}->debug('Change current position to '.$attr->{'current_position'});
                     $entity->current_position($attr->{'current_position'});
+                }
+                if ($attr->{'brightness'}) {
+                    $self->{_log}->debug('Change current brightness to '.$attr->{'brightness'});
+                    $entity->current_position($attr->{'brightness'});
                 }
             }
             if ($data->{'s'}) {

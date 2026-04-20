@@ -47,8 +47,10 @@ my $defaultPrefs = {
     'port'                      => 8123,
     'https'                     => 0,
     'password'                  => '',
-    'dimmerAsOnOff'             => 1,
-    'blindsPercentageAsOnOff'   => 1,
+    'dimmerHideSlider'          => 0,
+    'dimmerHideOnOff'           => 0,
+    'blindsPercentageHideSlider'=> 0,
+    'blindsPercentageHideOnOff' => 0,
     'filterByName'              => '',
     'deviceOnOff'               => 0,
     'generalAlarm'              => '',
@@ -182,6 +184,7 @@ sub menuHADimmer {
     my $level = $request->getParam('level');
     my $min = $request->getParam('min');
     my $max = $request->getParam('max');
+    my $text = $request->getParam('text');
 
     $log->debug('Slider menu');
 
@@ -189,6 +192,7 @@ sub menuHADimmer {
         slider   => 1,
         min      => $min,
         max      => $max,
+        text     => $text,
         initial  => $level,
         actions  => {
             do   => {
@@ -276,9 +280,27 @@ sub _buildMenu {
                     },
                 };
             }
+            elsif ($entity->is_number() && $entity->is_slider()) {
+                $log->debug('Add number slider entry for id '.$entity->id());
+                    push @menu, {
+                        text     => $entity->friendly_name(),
+                        actions  => {
+                            go => {
+                                player => 0,
+                                cmd    => ['menuHADimmer'],
+                                params => {
+                                    idx    => $entity->id(),
+                                    level  => $entity->state(),
+                                    min    => $entity->min(),
+                                    max    => $entity->max(),
+                                    text   => $entity->unit() ? $entity->state().' '.$entity->unit() : $entity->state(),
+                                },
+                            },
+                        },
+                    };
+            }
             elsif ($entity->is_number()) {
-                $log->debug('Add number entry for id '.$entity->id());
-
+                $log->debug('Add number box entry for id '.$entity->id());
                 push @menu, {
                     text     => $entity->friendly_name(),
                     nextWindow => 'parent',
@@ -303,23 +325,53 @@ sub _buildMenu {
                     },
                 };
             }
-            elsif (($entity->is_cover_slider() && !$prefs->client($client)->get('blindsPercentageAsOnOff')) || ($entity->is_light_slider() && !$prefs->client($client)->get('dimmerAsOnOff'))) {
-                $log->debug('Add slider entry for id '.$entity->id());
-                push @menu, {
-                    text     => $entity->friendly_name(),
-                    actions  => {
-                        go => {
-                            player => 0,
-                            cmd    => ['menuHADimmer'],
-                            params => {
-                                idx    => $entity->id(),
-                                level  => $entity->current_position(),
-                                min    => $entity->min(),
-                                max    => $entity->max(),
+            elsif ($entity->is_cover_slider() || $entity->is_light_slider()) {
+                if (($entity->is_cover_slider() && !$prefs->client($client)->get('blindsPercentageHideOnOff')) || ($entity->is_light_slider() && !$prefs->client($client)->get('dimmerHideOnOff'))) {
+                    $log->debug('Add on/off slider entry for id '.$entity->id());
+                    push @menu, {
+                        text     => $entity->friendly_name(),
+                        checkbox => $entity->boolean_state(),
+                        actions  => {
+                            on   => {
+                                player => 0,
+                                cmd    => ['setToHA'],
+                                params => {
+                                    idx    => $entity->id(),
+                                    cmd    => 'on_off',
+                                    level  => 1,
+                                },
+                            },
+                            off  => {
+                                player => 0,
+                                cmd    => ['setToHA'],
+                                params => {
+                                    idx    => $entity->id(),
+                                    cmd    => 'on_off',
+                                    level  => 0,
+                                },
                             },
                         },
-                    },
-                };
+                    };
+                }
+                if (($entity->is_cover_slider() && !$prefs->client($client)->get('blindsPercentageHideSlider')) || ($entity->is_light_slider() && !$prefs->client($client)->get('dimmerHideSlider'))) {
+                    $log->debug('Add slider entry for id '.$entity->id());
+                    push @menu, {
+                        text     => $entity->friendly_name(),
+                        actions  => {
+                            go => {
+                                player => 0,
+                                cmd    => ['menuHADimmer'],
+                                params => {
+                                    idx    => $entity->id(),
+                                    level  => $entity->current_position(),
+                                    min    => $entity->min(),
+                                    max    => $entity->max(),
+                                    text   => $entity->unit() ? $entity->percent().' '.$entity->unit() : $entity->percent(),
+                                },
+                            },
+                        },
+                    };
+                }
             }
             elsif ($entity->is_press()) {
                 push @menu, {
@@ -604,7 +656,7 @@ sub _macroStringResult {
         my $func = $4;
         my $funcArg = $6;
 
-        if ($websockets{$client->id}->is_entity_id_in_error($id)) {
+        if ($websockets{$client->id} && $websockets{$client->id}->is_entity_id_in_error($id)) {
             $log->debug('Skip ' . $id);
             next;
         }

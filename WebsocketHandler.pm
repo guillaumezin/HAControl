@@ -197,7 +197,7 @@ sub _ws_callback {
             }
         }
     }
-    elsif ($decoded->{'id'} && ($decoded->{'type'} eq 'event') && $decoded->{'event'} &&    $decoded->{'event'}->{'event_type'} && ($decoded->{'event'}->{'event_type'} eq 'lovelace_updated') && $decoded->{'event'}->{'data'} && $decoded->{'event'}->{'data'}->{'url_path'}  && ($decoded->{'event'}->{'data'}->{'url_path'} eq $self->{_url_path})) {
+    elsif ($decoded->{'id'} && ($decoded->{'type'} eq 'event') && $decoded->{'event'} &&    $decoded->{'event'}->{'event_type'} && ($decoded->{'event'}->{'event_type'} eq 'lovelace_updated') && $decoded->{'event'}->{'data'} && $decoded->{'event'}->{'data'}->{'url_path'} && ($decoded->{'event'}->{'data'}->{'url_path'} eq $self->{_url_path})) {
         $self->{_log}->debug('Lovelace event, reconnect');
         $self->connect();
     }
@@ -209,6 +209,10 @@ sub _ws_callback {
         if ($decoded->{'event'}->{'a'}) {
             $key = 'a';
             ($entity_id) = keys %{ $decoded->{'event'}->{$key} };
+            if (!$entity_id) {
+                $self->{_log}->debug('Empty event received');
+                return;
+            }
             $entity = $self->{_new_entities}->by_id($entity_id);
             $is_added = 1;
         }
@@ -227,6 +231,12 @@ sub _ws_callback {
             }
             my $attr = $data->{'a'};
             if ($attr) {
+                if ($attr->{'supported_features'} && ($attr->{'supported_features'} eq 'restored')) {                    
+                    $self->{_log}->debug('Trigger get_services after supported_features restored for '.$entity->id());
+                    my $msg = '"type":"get_services_for_target","target":{"entity_id": ["'.$entity->id().'"]}';
+                    $self->_send_with_id($msg, $entity);
+                    return;
+                }
                 if ($attr->{'friendly_name'}) {
                     $self->{_log}->debug('Got name '.$attr->{'friendly_name'});
                     $entity->friendly_name($attr->{'friendly_name'});
@@ -242,6 +252,12 @@ sub _ws_callback {
                 }
                 if ($attr->{'step'}) {
                     $entity->step($attr->{'step'});
+                }
+                if ($attr->{'mode'}) {
+                    $entity->mode($attr->{'mode'});
+                }
+                if ($attr->{'unit_of_measurement'}) {
+                    $entity->unit($attr->{'unit_of_measurement'});
                 }
                 if ($attr->{'current_position'}) {
                     $self->{_log}->debug('Change current position to '.$attr->{'current_position'});

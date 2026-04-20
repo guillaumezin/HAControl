@@ -45,13 +45,21 @@ PLUGIN_HACONTROL_SETTINGS_SPECIAL
 	EN	Advanced settings
 	FR	Options avancées
 
-PLUGIN_HACONTROL_SETTINGS_DIMMERASONOFF
-	EN	Manage dimmers as simple switches
-	FR	Gérer les variateurs comme des boutons simples
+PLUGIN_HACONTROL_SETTINGS_DIMMERHIDESLIDER
+	EN	Hide slider menu for dimmers
+	FR	Cacher le menu avec bouton coulissant pour les variateurs
 
-PLUGIN_HACONTROL_SETTINGS_BLINDSPERCENTAGEASONOFF
-	EN	Manage progressive blinds as simple opened/closed blinds
-	FR	Gérer les volets progressifs comme de simples volets ouverts/fermés
+PLUGIN_HACONTROL_SETTINGS_DIMMERHIDEONOFF
+	EN	Hide simple button to manage dimmers
+	FR	Cacher le bouton simple pour les variateurs
+
+PLUGIN_HACONTROL_SETTINGS_BLINDSPERCENTAGEHIDESLIDER
+	EN	Hide slider menu for progressive blinds
+	FR	Cacher le menu avec bouton coulissant pour les volets progressifs
+
+PLUGIN_HACONTROL_SETTINGS_BLINDSPERCENTAGEHIDEONOFF
+	EN	Hide simple button for progressive blinds
+	FR	Cacher le bouton simple pour les volets progressifs
 
 PLUGIN_HACONTROL_SETTINGS_ONOFFDEVICE
 	EN	Entity id to synchronise with On/Off
@@ -102,5 +110,5 @@ PLUGIN_HACONTROL_SETTINGS_SDT
 	FR	Chaînes de format pour Custom Clock
 
 PLUGIN_HACONTROL_SETTINGS_SDTDOC
-	EN	Home Assistant control can expose values based on devices state to Custom Clock Helper, if you have SuperDateTime (weather.com version 5.9.42 onwards).<br/>Values must be given based on device name or entity id.<br/>~entityId~For instance, ~External Temp Sensor~ will be replaced by the current temperature reported by Home Assistant entity named "External Temp Sensor".<br/>For convenience, you can append functions to change returned value.<br/>~entityId~truncate~ to truncate a number.<br/>~entityId~ceil~ for ceil function.<br/>~entityId~floor~ for floor function.<br/>~entityId~round~ to round a number as integer.<br/>~entityId~round~1~ to round a number keeping one decimal (1 can be any positive integer).<br/>~entityId~shorten~3~ to keep only the three first characters of the value (3 can be any positive integer).
-	FR	Home Assistant peut envoyer des valeurs basées sur l'état des dispositifs vers Custom Clock Helper, si vous avez SuperDateTime (version weather.com 5.9.42 ou plus récente).<br/>Les valeurs doivent être indiquées en se basant sur le nom ou l'id d'entité.<br/>~idEndité~<br/>Par exemple, ~Capteur de température exterieur~ sera remplacé par la température mesurée par le dispositif avec id d'entité "Capteur de température exterieur".<br/>Par commoditié, vous pouvez ajouter des fonctions pour changer les valeurs obtenues.<br/>~idEndité~truncate~ pour tronquer le nombre obtenu sans arrondi.<br/>~idEndité~ceil~ pour la fonction ceil sur un nombre.<br/>~idEndité~floor~ pour la fonction floor sur un nombre.<br/>~iIdxdudispositif~round~ pour arrondir un nombre vers sa valeur entière<br/>~idEndité~round~1~ pour arrondir un nombre une décimale après la virgule (1 peut être n'importe quel entier positif).<br/>~idEndité~shorten~3~ pour ne garder que les 3 premiers caractères de la valeur obtenues (3 peut être n'importe quel entier positif).
+	EN	Home Assistant control can expose values based on devices state to Custom Clock Helper, if you have SuperDateTime (weather.com version 5.9.42 onwards).<br/>Values must be given based on device name or entity id.<br/>~entityId~For instance, ~sensor.detecteur_de_fumee_air_temperature~ will be replaced by the current temperature reported by Home Assistant entity with id "sensor.detecteur_de_fumee_air_temperature".<br/>For convenience, you can append functions to change returned value.<br/>~entityId~truncate~ to truncate a number.<br/>~entityId~ceil~ for ceil function.<br/>~entityId~floor~ for floor function.<br/>~entityId~round~ to round a number as integer.<br/>~entityId~round~1~ to round a number keeping one decimal (1 can be any positive integer).<br/>~entityId~shorten~3~ to keep only the three first characters of the value (3 can be any positive integer).
+	FR	Home Assistant peut envoyer des valeurs basées sur l'état des dispositifs vers Custom Clock Helper, si vous avez SuperDateTime (version weather.com 5.9.42 ou plus récente).<br/>Les valeurs doivent être indiquées en se basant sur l'id d'entité.<br/>~idEndité~<br/>Par exemple, ~sensor.detecteur_de_fumee_air_temperature~ sera remplacé par la température mesurée par le dispositif avec id d'entité "sensor.detecteur_de_fumee_air_temperature".<br/>Par commoditié, vous pouvez ajouter des fonctions pour changer les valeurs obtenues.<br/>~idEndité~truncate~ pour tronquer le nombre obtenu sans arrondi.<br/>~idEndité~ceil~ pour la fonction ceil sur un nombre.<br/>~idEndité~floor~ pour la fonction floor sur un nombre.<br/>~iIdxdudispositif~round~ pour arrondir un nombre vers sa valeur entière<br/>~idEndité~round~1~ pour arrondir un nombre une décimale après la virgule (1 peut être n'importe quel entier positif).<br/>~idEndité~shorten~3~ pour ne garder que les 3 premiers caractères de la valeur obtenues (3 peut être n'importe quel entier positif).

@@ -12,6 +12,7 @@ sub new {
         _hidden => shift,
         _commid => 0,
         _state => '',
+        _mode => '',
         _friendly_name => '',
         _domain => '',
         _short_name => '',
@@ -23,9 +24,11 @@ sub new {
         _is_cover_position => 0,
         _is_light_percent => 0,
         _is_number => 0,
+        _is_slider => 0,
         _current_position => 0,
         _is_selector => 0,
         _is_press => 0,
+        _unit => '',
         _min => 0,
         _max => 255,
         _step => 1,
@@ -56,9 +59,15 @@ sub analyse_services {
     }
     if (any { $_ eq "light.turn_on" } @{ $services }) {
         $self->{_is_light_percent} = 1;
+        $self->{_min} = 0;
+        $self->{_max} = 255;
+        $self->{_unit} = '%';
     }
     if (any { $_ eq "cover.set_cover_position" } @{ $services }) {
         $self->{_is_cover_position} = 1;
+        $self->{_min} = 0;
+        $self->{_max} = 100;
+        $self->{_unit} = '%';
     }
     if (any { $_ eq "input_number.set_value" } @{ $services }) {
         $self->{_is_number} = 1;
@@ -115,14 +124,51 @@ sub state {
     return $self->{_state};
 }
 
+sub percent {
+    my ($self, $level) = @_;
+
+    if (@_ > 1) {
+        return int(100*$level/($self->{_max}-$self->{_min}));
+    }
+    else {
+        return int(100*$self->{_current_position}/($self->{_max}-$self->{_min}));    
+    }
+}
+
+sub mode {
+    my ($self, $mode) = @_;
+
+    if (@_ > 1) {
+        if (defined $mode) {
+            $self->{_mode} = $mode;
+        }
+        return $self;
+    }
+
+    return $self->{_mode};
+}
+
+sub unit {
+    my ($self, $unit) = @_;
+
+    if (@_ > 1) {
+        if (defined $unit) {
+            $self->{_unit} = $unit;
+        }
+        return $self;
+    }
+
+    return $self->{_unit};
+}
+
 sub boolean_state {
     my ($self) = @_;
 
-    if (($self->{_state} eq 'on') || ($self->{_state} eq 'open')) {
-        return 1;
+    if (($self->{_state} eq 'off') || ($self->{_state} eq 'close')) {
+        return 0;
     }
     else {
-        return 0;
+        return 1;
     }
 }
 
@@ -169,9 +215,6 @@ sub current_position {
         if (defined $current_position) {
             $self->{_current_position} = int($current_position);
         }
-        else {
-            $self->{_current_position} = 0;
-        }
         return $current_position;
     }
 
@@ -194,6 +237,11 @@ sub step {
 sub is_number {
     my ($self) = @_;
     return $self->{_is_number};
+}
+
+sub is_slider {
+    my ($self) = @_;
+    return (($self->{_mode} eq 'slider') || $self->{_is_cover_position} || $self->{_is_light_percent});
 }
 
 sub is_selector {
@@ -282,16 +330,23 @@ sub create_call_service {
         return '"type":"call_service","domain":"'.$self->domain().'","service":"select_option","service_data":{"entity_id":"'.$self->id().'","option":"'.$level.'"}';
     }
     elsif (($cmd eq 'slider') && $self->{_is_cover_position}) {
-        return '"type":"call_service","domain":"'.$self->domain().'","service":"set_cover_position","service_data":{"entity_id":"'.$self->id().'","position":'.$level.'}';
-    }
-    elsif (($cmd eq 'slider') && $self->{_is_light_percent}) {
-        my $boolean_level = $self->_translate_service_on_off($level);
-        if ($level == 0) {
-            return '"type":"call_service","domain":"'.$self->domain().'","service":"'.$boolean_level.'","service_data":{"entity_id":"'.$self->id().'"}';
+        if (int($level) <= $self->{_min}) {
+            $self->{_state} = 'close';
         }
         else {
-            my $level_pct = int(100*$level/($self->{_max}-$self->{_min}));
-            return '"type":"call_service","domain":"'.$self->domain().'","service":"'.$boolean_level.'","service_data":{"entity_id":"'.$self->id().'","brightness_pct":'.$level_pct.'}';
+            $self->{_state} = 'open';
+        }
+        return '"type":"call_service","domain":"'.$self->domain().'","service":"set_cover_position","service_data":{"entity_id":"'.$self->id().'","position":'.$level.'}';
+    }
+    elsif (($cmd eq 'slider') && ($self->{_is_light_percent} || $self->{_is_cover_position})) {
+        if (int($level) <= $self->{_min}) {
+            $self->{_state} = 'off';
+            return '"type":"call_service","domain":"'.$self->domain().'","service":"turn_off","service_data":{"entity_id":"'.$self->id().'"}';
+        }
+        else {
+            $self->{_state} = 'on';
+            my $level_pct = $self->percent($level);
+            return '"type":"call_service","domain":"'.$self->domain().'","service":"turn_on","service_data":{"entity_id":"'.$self->id().'","brightness_pct":'.$level_pct.'}';
         }
     }
     elsif (($cmd eq 'slider') || ($cmd eq 'number'))  {

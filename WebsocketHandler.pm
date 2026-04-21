@@ -1,10 +1,14 @@
 package Plugins::HAControl::WebsocketHandler;
 
+use strict;
+use warnings;
+
 use JSON::XS::VersionOneAndTwo;
 use Encode qw(encode_utf8);
-use Scalar::Util qw(weaken);
+use Time::HiRes ();
 use Slim::Networking::SimpleWS;
 use Slim::Utils::Timers;
+
 use Plugins::HAControl::Entity;
 use Plugins::HAControl::Entities;
 
@@ -18,57 +22,268 @@ use constant MODE_GET_MORE_SERVICES       => 6;
 use constant MODE_SUBSCRIBE_MORE_ENTITIES => 7;
 
 sub new {
-   my $class = shift;
-   my $self = {
-        _url => shift,
-        _token => shift,
+    my $class = shift;
+
+    my $self = {
+        _url       => shift,
+        _token     => shift,
         _dashboard => shift,
-        _log => shift,
-        _on_init => shift,
+        _log       => shift,
+        _on_init   => shift,
         _on_change => shift,
-        _on_error => shift,
-        _id => 1,
+        _on_error  => shift,
+
+        _id       => 1,
         _backupid => 0,
-        _mode => MODE_NONE,
+        _mode     => MODE_NONE,
+
         _new_entities => Plugins::HAControl::Entities->new(),
-        _entities => Plugins::HAControl::Entities->new(),
-        _ws => undef,
-        _queue => [],
-        _queue_mode => [],
-        _queue_entity => [],
+        _entities     => Plugins::HAControl::Entities->new(),
+
+        _ws    => undef,
+        _open  => 0,
         _ready => 0,
-        _timer => undef,
+
+        _queue        => [],
+        _queue_mode   => [],
+        _queue_entity => [],
+
         _url_path => '',
-        _hidden_entity_id => '',
-        _entities_id_in_error => {},
-        _subscribe_hidden_callback => undef,
-        _open => 0,
-   };
-   bless $self, $class;
 
-   $self->connect();
+        _hidden_entity_id           => '',
+        _entities_id_in_error       => {},
+        _subscribe_hidden_callback  => undef,
 
-   return $self;
+        # reconnect management
+        _reconnect_timer => undef,
+        _reconnect_delay => 5,
+        _reconnect_max   => 300,
+        _reconnecting    => 0,
+
+        # shutdown flag
+        _shutdown => 0,
+    };
+
+    bless $self, $class;
+
+    $self->connect();
+
+    return $self;
 }
 
 sub DESTROY {
     my ($self) = @_;
+    $self->shutdown();
+}
+
+##############################################################################
+# lifecycle
+##############################################################################
+
+sub shutdown {
+    my ($self) = @_;
+    return unless $self;
+
+    $self->{_shutdown} = 1;
+
+    $self->_kill_timer('_reconnect_timer');
+
     $self->close();
 }
 
-sub _connected_callback {
+sub close {
     my ($self) = @_;
 
-    if (!defined($self)) {
-        return;
+    $self->{_open}  = 0;
+    $self->{_ready} = 0;
+
+    if ($self->{_ws}) {
+        eval { $self->{_ws}->close(); };
+        $self->{_ws} = undef;
+    }
+}
+
+sub connect {
+    my ($self) = @_;
+    return unless $self;
+    return if $self->{_shutdown};
+    return if $self->{_reconnecting};
+
+    $self->{_reconnecting} = 1;
+
+    $self->close();
+
+    $self->{_log}->info('Opening websocket ' . $self->{_url});
+
+    $self->{_open} = 1;
+
+    my $ws = Slim::Networking::SimpleWS->new(
+        $self->{_url},
+        sub {
+            eval { $self->_connected_callback(@_) };
+            if ($@) {
+                $self->{_log}->error("Error in _connected_callback: $@");
+            }
+        },
+        sub {
+            eval { $self->_error_callback(@_) };
+            if ($@) {
+                $self->{_log}->error("Error in constructor error callback: $@");
+            }
+        }
+    );
+
+    $self->{_ws} = $ws;
+
+    $ws->listenAsync(
+        sub {
+            eval { $self->_ws_callback(@_) };
+            if ($@) {
+                $self->{_log}->error("Error in _ws_callback: $@");
+            }
+        },
+        sub {
+            eval { $self->_error_callback(@_) };
+            if ($@) {
+                $self->{_log}->error("Error in listenAsync error callback: $@");
+            }
+        }
+    );
+}
+
+##############################################################################
+# reconnect / timers
+##############################################################################
+
+sub _schedule_reconnect {
+    my ($self, $reason) = @_;
+    return unless $self;
+    return if $self->{_shutdown};
+    return if $self->{_reconnect_timer};
+
+    my $delay = $self->{_reconnect_delay};
+
+    $self->{_log}->warn("Reconnect scheduled in ${delay}s ($reason)");
+
+    $self->{_reconnect_timer} = Slim::Utils::Timers::setTimer(
+        undef,
+        Time::HiRes::time() + $delay,
+        sub {
+            delete $self->{_reconnect_timer};
+
+            eval { $self->connect(); };
+
+            if ($@) {
+                $self->{_log}->error("Reconnect failed: $@");
+                $self->_schedule_reconnect('connect exception');
+            }
+        }
+    );
+
+    $self->{_reconnect_delay} *= 2;
+    $self->{_reconnect_delay} = $self->{_reconnect_max}
+        if $self->{_reconnect_delay} > $self->{_reconnect_max};
+}
+
+sub _kill_timer {
+    my ($self, $key) = @_;
+
+    if ($self->{$key}) {
+        eval { Slim::Utils::Timers::killSpecific($self->{$key}); };
+        delete $self->{$key};
+    }
+}
+
+##############################################################################
+# callbacks
+##############################################################################
+
+sub _connected_callback {
+    my ($self) = @_;
+    return unless $self;
+
+    $self->{_log}->info('Connected');
+
+    $self->{_reconnecting}    = 0;
+    $self->{_reconnect_delay} = 5;
+
+    $self->_kill_timer('_reconnect_timer');
+}
+
+sub _error_callback {
+    my ($self) = @_;
+    return unless $self;
+    return if $self->{_shutdown};
+
+    $self->{_log}->error('Websocket error');
+
+    $self->{_ready} = 0;
+    $self->{_open}  = 0;
+
+    $self->close();
+
+    my $cb = $self->{_on_error};
+    eval { $cb->() if $cb; };
+
+    $self->_schedule_reconnect('socket error');
+}
+
+##############################################################################
+# send helpers
+##############################################################################
+
+sub _send_with_id {
+    my ($self, $buf, $entity) = @_;
+
+    $self->{_backupid} = $self->{_id}++;
+
+    if ($entity) {
+        $self->{_entities}->commid($entity,     $self->{_backupid});
+        $self->{_new_entities}->commid($entity, $self->{_backupid});
     }
 
-    $self->{_log}->debug('Connected');
+    my $msg = '{"id":' . $self->{_backupid} . ',' . $buf . '}';
+
+    $self->{_log}->debug('Send message ' . $msg);
+
+    $self->{_ws}->send($msg);
+}
+
+sub _enqueue {
+    my ($self, $msg, $mode, $entity) = @_;
+
+    push @{ $self->{_queue} },        $msg;
+    push @{ $self->{_queue_mode} },   $mode // $self->{_mode};
+    push @{ $self->{_queue_entity} }, $entity;
+}
+
+sub _send_next {
+    my ($self) = @_;
+    return unless @{ $self->{_queue} };
+
+    my $msg    = shift @{ $self->{_queue} };
+    my $mode   = shift @{ $self->{_queue_mode} };
+    my $entity = shift @{ $self->{_queue_entity} };
+
+    $self->{_mode} = $mode;
+    $self->_send_with_id($msg, $entity);
+}
+
+sub _send_or_enqueue {
+    my ($self, $msg, $mode, $entity) = @_;
+
+    if ($self->{_ready} && $self->{_open}) {
+        $self->{_mode} = $mode if defined $mode;
+        $self->_send_with_id($msg, $entity);
+    }
+    else {
+        $self->_enqueue($msg, $mode, $entity);
+        $self->connect() unless $self->{_open};
+    }
 }
 
 sub _on_ready {
     my ($self) = @_;
-    $self->{_log}->debug('State machine ready');
 
     if (@{ $self->{_queue} }) {
         $self->_send_next();
@@ -76,32 +291,63 @@ sub _on_ready {
     }
 
     $self->{_ready} = 1;
-    $self->{_log}->debug('State machine ready and queue empty');
 }
 
-sub _send_with_id{
-    my ($self, $buf, $entity) = @_;
-    my $msg;
-    
-    $self->{_backupid} = $self->{_id}++;
+##############################################################################
+# public api
+##############################################################################
 
-    if ($entity) {
-        $self->{_entities}->commid($entity, $self->{_backupid});
-        $self->{_new_entities}->commid($entity, $self->{_backupid});
-    }
+sub send_command {
+    my ($self, $id, $cmd, $level) = @_;
 
-    $msg = '{"id":'.$self->{_backupid}.','.$buf.'}';
-    $self->{_log}->debug('Send message '.$msg);
+    my $entity = $self->{_entities}->by_id($id);
+    return unless $entity;
 
-    $self->{_ws}->send($msg);
+    my $msg = '"return_response":false,' .
+              $entity->create_call_service($cmd, $level);
+
+    $self->_send_or_enqueue($msg, undef, $entity);
 }
+
+sub entities {
+    my ($self) = @_;
+    return $self->{_entities}->all_entities();
+}
+
+sub entity_by_id {
+    my ($self, $id) = @_;
+    return $self->{_entities}->by_id($id);
+}
+
+sub subscribe_hidden_entity {
+    my ($self, $id, $cb) = @_;
+
+    $self->{_hidden_entity_id}          = $id;
+    $self->{_subscribe_hidden_callback} = $cb;
+
+    my $msg =
+      '"type":"get_services_for_target","target":{"entity_id":["' . $id . '"]}';
+
+    $self->_send_or_enqueue($msg, MODE_GET_MORE_SERVICES);
+}
+
+sub clear_entities_id_in_error {
+    my ($self) = @_;
+    $self->{_entities_id_in_error} = {};
+}
+
+sub is_entity_id_in_error {
+    my ($self, $id) = @_;
+    return exists $self->{_entities_id_in_error}{$id};
+}
+
+##############################################################################
+# main callback
+##############################################################################
 
 sub _ws_callback {
     my ($self, $buf) = @_;
-
-    if (!defined($self)) {
-        return;
-    }   
+    return unless $self;
     
     $self->{_log}->debug('Message: ' . $buf);
     my $decoded = eval { decode_json(encode_utf8($buf)) };
@@ -231,44 +477,44 @@ sub _ws_callback {
             }
             my $attr = $data->{'a'};
             if ($attr) {
-                if ($attr->{'supported_features'} && ($attr->{'supported_features'} eq 'restored')) {                    
+                if ($attr->{'restored'}) {                    
                     $self->{_log}->debug('Trigger get_services after supported_features restored for '.$entity->id());
                     my $msg = '"type":"get_services_for_target","target":{"entity_id": ["'.$entity->id().'"]}';
                     $self->_send_with_id($msg, $entity);
                     return;
                 }
-                if ($attr->{'friendly_name'}) {
+                if (defined $attr->{'friendly_name'}) {
                     $self->{_log}->debug('Got name '.$attr->{'friendly_name'});
                     $entity->friendly_name($attr->{'friendly_name'});
                 }
-                if ($attr->{'options'}) {
+                if (defined $attr->{'options'}) {
                     $entity->options($attr->{'options'});
                 }
-                if ($attr->{'min'}) {
+                if (defined $attr->{'min'}) {
                     $entity->min($attr->{'min'});
                 }
-                if ($attr->{'max'}) {
+                if (defined $attr->{'max'}) {
                     $entity->max($attr->{'max'});
                 }
-                if ($attr->{'step'}) {
+                if (defined $attr->{'step'}) {
                     $entity->step($attr->{'step'});
                 }
-                if ($attr->{'mode'}) {
+                if (defined $attr->{'mode'}) {
                     $entity->mode($attr->{'mode'});
                 }
-                if ($attr->{'unit_of_measurement'}) {
+                if (defined $attr->{'unit_of_measurement'}) {
                     $entity->unit($attr->{'unit_of_measurement'});
                 }
-                if ($attr->{'current_position'}) {
+                if (defined $attr->{'current_position'}) {
                     $self->{_log}->debug('Change current position to '.$attr->{'current_position'});
                     $entity->current_position($attr->{'current_position'});
                 }
-                if ($attr->{'brightness'}) {
+                if (defined $attr->{'brightness'}) {
                     $self->{_log}->debug('Change current brightness to '.$attr->{'brightness'});
                     $entity->current_position($attr->{'brightness'});
                 }
             }
-            if ($data->{'s'}) {
+            if (defined $data->{'s'}) {
                 $self->{_log}->debug('Got state '.$data->{'s'});
                 $entity->state($data->{'s'});
             }
@@ -325,169 +571,4 @@ sub _ws_callback {
     }
 }
 
-sub entities {
-    my ($self) = @_;
-    return $self->{_entities}->all_entities();
-}
-
-sub _add_entities_id_in_error {
-    my ($self, $id) = @_;
-    $self->{_log}->debug('Add to entities id error list: ' . $id);
-    $self->{_entities_id_in_error}{$id} = 1;
-}
-
-sub is_entity_id_in_error {
-    my ($self, $id) = @_;
-    return exists $self->{_entities_id_in_error}{$id};
-}
-
-sub clear_entities_id_in_error {
-    my ($self) = @_;
-    $self->{_log}->debug('Clear entities id error list');
-    $self->{_entities_id_in_error} = {};
-}
-
-sub entity_by_id {
-    my ($self, $id) = @_;
-    return $self->{_entities}->by_id($id);
-}
-
-sub _enqueue {
-    my ($self, $msg, $mode, $entity) = @_;
-    $self->{_log}->debug('Enqueue');
-    push @{ $self->{_queue} }, $msg;
-    push @{ $self->{_queue_mode} }, $mode // $self->{_mode};
-    push @{ $self->{_queue_entity} }, $entity;
-}
-
-sub _send_next {
-    my ($self) = @_;
-    return unless @{ $self->{_queue} };
-    $self->{_log}->debug('Send next');
-    my $msg  = shift @{ $self->{_queue} };
-    my $mode = shift @{ $self->{_queue_mode} };
-    my $entity = shift @{ $self->{_queue_entity} };
-    $self->{_mode} = $mode;
-    $self->_send_with_id($msg, $entity);
-}
-
-sub _send_or_enqueue {
-    my ($self, $msg, $mode, $entity) = @_;
-    if ($self->{_ready} && $self->{_open}) {
-        $self->{_mode} = $mode if defined $mode;
-        $self->_send_with_id($msg, $entity);
-    } else {
-        $self->_enqueue($msg, $mode, $entity);
-        if (!$self->{_open}) {
-            $self->connect();
-        }
-    }
-}
-
-sub _clear_queue {
-    my ($self) = @_;
-    $self->{_queue}      = [];
-    $self->{_queue_mode} = [];
-    $self->{_queue_entity} = [];
-}
-
-sub send_command {
-    my ($self, $id, $cmd, $level) = @_;
-
-    my $entity = $self->{_entities}->by_id($id);
-
-    if ($entity) {
-        my $msg = '"return_response":false,'.$entity->create_call_service($cmd, $level);
-        $self->{_log}->debug('Send command '.$msg);
-        $self->_send_or_enqueue($msg, undef, $entity);
-    }
-}
-
-sub _error_callback {
-    my ($self) = @_;
-
-    if (!defined($self)) {
-        return;
-    }
-    
-    my $weak_self = $self;
-    weaken($weak_self);    
-
-    if ($self->{_mode}) {
-        $self->{_log}->error('Error during communication');
-    }
-    else {
-        $self->{_log}->error('Error during connection or auth, check token in configuration');
-    }
-    $self->{_timer} = Slim::Utils::Timers::setTimer(undef, Time::HiRes::time() + 10, sub { eval{$weak_self->connect()}; if ($@) {$weak_self->{_log}->error("Error in reconnect timer: $@");} });
-}
-
-sub subscribe_hidden_entity {
-    my ($self, $id, $cb) = @_;
-
-    $self->{_log}->debug('Trigger get_services for '.$id);
-    $self->{_hidden_entity_id} = $id;
-    $self->{_subscribe_hidden_callback} = $cb;
-    my $msg = '"type":"get_services_for_target","target":{"entity_id": ["'.$id.'"]}';
-    $self->_send_or_enqueue($msg, MODE_GET_MORE_SERVICES);
-}
-
-sub connect {
-    my ($self) = @_;
-    
-    if (!defined($self)) {
-        return;
-    }
-    
-    my $weak_self = $self;
-    weaken($weak_self);    
-
-    $self->close();
-
-    $self->{_log}->debug('Opening websocket ' . $self->{_url});
-    $self->{_open} = 1;
-    my $ws = Slim::Networking::SimpleWS->new($self->{_url}, sub { eval {$weak_self->_connected_callback(@_)}; if ($@) {$weak_self->{_log}->error("Error in _connected_callback: $@");} }, sub { eval {$weak_self->_error_callback(@_)}; if ($@) {$weak_self->{_log}->error("Error in _error_callback on new: $@");} });
-    $self->{_ws} = $ws;
-    #$self->{_ws}->listenAsync(sub { $weak_self->_ws_callback(@_) }, sub { $weak_self->_error_callback(@_) });
-    #$self->{_ws}->listenAsync(sub { eval {$weak_self->_ws_callback(@_)} }, sub { eval {$weak_self->_error_callback(@_) } });
-    $self->{_ws}->listenAsync(sub { eval {$weak_self->_ws_callback(@_)}; if ($@) {$weak_self->{_log}->error("Error in _ws_callback: $@");} }, sub { eval {$weak_self->_error_callback(@_)}; if ($@) {$weak_self->{_log}->error("Error in _error_callback on listenAsync: $@");} });
-}
-
-sub close {
-    my ($self) = @_;
-
-    $self->{_open} = 0;
-    $self->{_ready} = 0;
-    if ($self->{_timer}) {
-        Slim::Utils::Timers::killSpecific($self->{_timer});
-    }
-    if ($self->{_ws}) {
-        $self->{_ws}->close();
-        $self->{_ws} = undef;
-    }
-}
-
-sub on_change {
-    my ($self, $cb) = @_;
-
-    $self->{_on_change} = $cb;
-    return $self;
-}
-
-sub on_init {
-    my ($self, $cb) = @_;
-
-    $self->{_on_init} = $cb;
-    return $self;
-}
-
-sub on_error {
-    my ($self, $cb) = @_;
-
-    $self->{_on_error} = $cb;
-    return $self;
-}
-
 1;
-
-__END__

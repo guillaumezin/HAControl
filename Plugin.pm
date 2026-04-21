@@ -5,7 +5,6 @@ use strict;
 use base qw(Slim::Plugin::Base);
 use JSON::XS::VersionOneAndTwo;
 use POSIX qw(ceil floor);
-use Scalar::Util qw(weaken);
 use Slim::Control::Request;
 use Slim::Networking::SimpleAsyncHTTP;
 use Slim::Utils::Log;
@@ -16,6 +15,8 @@ use Slim::Utils::Strings qw (string);
 use Plugins::HAControl::WebsocketHandler;
 use Plugins::HAControl::Entities;
 use Plugins::HAControl::Entity;
+
+my $PLUGIN_SHUTTING_DOWN = 0;
 
 my %idxTimers  = ();
 my %entity_id_in_error_timer = ();
@@ -74,6 +75,7 @@ sub _clean_entity_id_in_error {
 }
 
 sub initPref {
+    return if $PLUGIN_SHUTTING_DOWN;
     my $client = shift;
 
     $log->debug('Init pref');
@@ -87,14 +89,13 @@ sub initPref {
             ($prefs->client($client)->get('https') ? 'wss://' : 'ws://') .
             $prefs->client($client)->get('address') . ':' . $prefs->client($client)->get('port') . '/api/websocket';
         $log->debug('Setting URL to '. $url);
-        my $weak_client = $client;
-        weaken($weak_client);    
-        $websockets{$client->id} = Plugins::HAControl::WebsocketHandler->new($url, $prefs->client($client)->get('password'), $prefs->client($client)->get('filterByName'), $log, sub { _buildMenu($weak_client) }, sub { _buildMenu($weak_client) });
+        $websockets{$client->id} = Plugins::HAControl::WebsocketHandler->new($url, $prefs->client($client)->get('password'), $prefs->client($client)->get('filterByName'), $log, sub { _buildMenu($client) }, sub { _buildMenu($client) });
         $entity_id_in_error_timer{$client->id} = Slim::Utils::Timers::setTimer($client, Time::HiRes::time() + 600, \&_clean_entity_id_in_error);
     }
 }
 
 sub clientEvent {
+    return if $PLUGIN_SHUTTING_DOWN;
     my $request = shift;
     my $client  = $request->client;
 
@@ -107,6 +108,7 @@ sub clientEvent {
 }
 
 sub resetPref {
+    return if $PLUGIN_SHUTTING_DOWN;
     my $client = shift;
 
     $log->debug('Reset pref');
@@ -423,7 +425,8 @@ sub _buildMenu {
     }
 
     $menus{$client->id} = [@menu];
-    Slim::Control::Request::notifyFromArray($client, ['pluginHAControlmenu']);
+    #Slim::Control::Request::notifyFromArray($client, ['pluginHAControlmenu']);
+    #Slim::Control::Jive::refreshPluginMenus($client);
 }
 
 sub getFromHA {
@@ -656,23 +659,25 @@ sub _macroStringResult {
         my $func = $4;
         my $funcArg = $6;
 
-        if ($websockets{$client->id} && $websockets{$client->id}->is_entity_id_in_error($id)) {
-            $log->debug('Skip ' . $id);
-            next;
-        }
+        if ($websockets{$client->id}) {
+            if ($websockets{$client->id}->is_entity_id_in_error($id)) {
+                $log->debug('Skip ' . $id);
+                next;
+            }
 
-        my $entity = $websockets{$client->id}->entity_by_id($id);
-        if ($entity) {
-            $log->debug('Found element name ' . $id);
-            my $replaceStr = _macroSubFunc($entity->state(), $func, $funcArg);
-            $log->debug('Will replace by: ' . $replaceStr);
-            $result =~ s/\Q${whole}\E/${replaceStr}/;
-        }
-        else {
-            $request->setStatusProcessing();
-            $requestProcessing = 1;
-            $websockets{$client->id}->subscribe_hidden_entity($id, sub { _macroStringResult($request) });
-            return;
+            my $entity = $websockets{$client->id}->entity_by_id($id);
+            if ($entity) {
+                $log->debug('Found element name ' . $id);
+                my $replaceStr = _macroSubFunc($entity->state(), $func, $funcArg);
+                $log->debug('Will replace by: ' . $replaceStr);
+                $result =~ s/\Q${whole}\E/${replaceStr}/;
+            }
+            else {
+                $request->setStatusProcessing();
+                $requestProcessing = 1;
+                $websockets{$client->id}->subscribe_hidden_entity($id, sub { _macroStringResult($request) });
+                return;
+            }
         }
     }
 
@@ -700,6 +705,12 @@ sub macroString {
 
 sub initPlugin {
     my $class = shift;
+
+    $PLUGIN_SHUTTING_DOWN = 0;
+
+    Slim::Control::Request::unsubscribe(\&clientEvent);
+    Slim::Control::Request::unsubscribe(\&setAlarmToHA);
+    Slim::Control::Request::unsubscribe(\&powerCallback);
 
     if (main::WEBUI) {
         require Plugins::HAControl::PlayerSettings;
@@ -750,6 +761,7 @@ sub initPlugin {
     );
 
     # Init pref when client connects
+    Slim::Control::Request::unsubscribe(\&clientEvent);
     Slim::Control::Request::subscribe(
         \&clientEvent,
         [['client'],['new','reconnect','disconnect']]
@@ -758,10 +770,34 @@ sub initPlugin {
 
 sub shutdownPlugin {
     my $class = shift;
+
+    $PLUGIN_SHUTTING_DOWN = 1;
+
     Slim::Control::Request::unsubscribe(\&clientEvent);
     Slim::Control::Request::unsubscribe(\&setAlarmToHA);
     Slim::Control::Request::unsubscribe(\&powerCallback);
+
     Slim::Control::Jive::deleteMenuItem('pluginHAControlmenu');
+
+    foreach my $t (values %idxTimers) {
+        eval { Slim::Utils::Timers::killSpecific($t); };
+    }
+
+    foreach my $t (values %entity_id_in_error_timer) {
+        eval { Slim::Utils::Timers::killSpecific($t); };
+    }
+
+    foreach my $id (keys %websockets) {
+        eval { $websockets{$id}->shutdown(); };
+    }
+
+    %idxTimers = ();
+    %entity_id_in_error_timer = ();
+    %websockets = ();
+    %menus = ();
+
+    @requestsQueue = ();
+    $requestProcessing = 0;
 }
 
 1;

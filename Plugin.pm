@@ -248,154 +248,88 @@ sub _buildMenu {
 
     foreach my $entity ( @entities ) {
         $log->debug('Test entry for id '.$entity->id());
-        if (!$entity->is_hidden()) {
-            if ($entity->is_selector()) {
-                $log->debug('Add selector entry for id '.$entity->id());
-                my @options = $entity->options();
-                my @choiceActions;
-                my $index = 0;
-                my $i = 0;
-                foreach my $option (@options) {
-                    if ($option eq $entity->state()) {
-                        $index = $i;
-                    }
-                    $i++;
-                    push @choiceActions,
-                    {
+        next if $entity->is_hidden();
+        if ($entity->is_selector()) {
+            $log->debug('Add selector entry for id '.$entity->id());
+            my @options = $entity->options();
+            my @choiceActions;
+            my $index = 0;
+            my $i = 0;
+            foreach my $option (@options) {
+                if ($option eq $entity->state()) {
+                    $index = $i;
+                }
+                $i++;
+                push @choiceActions,
+                {
+                    player => 0,
+                    cmd    => ['setToHA'],
+                    params => {
+                        idx    => $entity->id(),
+                        cmd    => 'selector',
+                        level  => $option,
+                    },
+                },
+            }
+            push @menu, {
+                text          => $entity->friendly_name(),
+                selectedIndex => $index,
+                choiceStrings => [ @options ],
+                actions  => {
+                    do => {
+                        choices => [ @choiceActions ],
+                    },
+                },
+            };
+        }
+        elsif ($entity->is_number() && $entity->is_slider()) {
+            $log->debug('Add number slider entry for id '.$entity->id());
+            push @menu, {
+                text     => $entity->friendly_name(),
+                actions  => {
+                    go => {
+                        player => 0,
+                        cmd    => ['menuHADimmer'],
+                        params => {
+                            idx    => $entity->id(),
+                            level  => $entity->state(),
+                            min    => $entity->min(),
+                            max    => $entity->max(),
+                            text   => $entity->unit() ? $entity->state().' '.$entity->unit() : $entity->state(),
+                        },
+                    },
+                },
+            };
+        }
+        elsif ($entity->is_number()) {
+            $log->debug('Add number box entry for id '.$entity->id());
+            push @menu, {
+                text     => $entity->friendly_name(),
+                nextWindow => 'parent',
+                input    => {
+                    initialText => $entity->state(),
+                    len => 1,
+                    allowedChars => '.0123456789',
+                },
+                window   => {
+                    text => $entity->friendly_name(),
+                },
+                actions  => {
+                    go => {
                         player => 0,
                         cmd    => ['setToHA'],
                         params => {
                             idx    => $entity->id(),
-                            cmd    => 'selector',
-                            level  => $option,
+                            cmd    => 'number',
+                            level  => '__TAGGEDINPUT__',
                         },
                     },
-                }
-                push @menu, {
-                    text          => $entity->friendly_name(),
-                    selectedIndex => $index,
-                    choiceStrings => [ @options ],
-                    actions  => {
-                        do => {
-                            choices => [ @choiceActions ],
-                        },
-                    },
-                };
-            }
-            elsif ($entity->is_number() && $entity->is_slider()) {
-                $log->debug('Add number slider entry for id '.$entity->id());
-                    push @menu, {
-                        text     => $entity->friendly_name(),
-                        actions  => {
-                            go => {
-                                player => 0,
-                                cmd    => ['menuHADimmer'],
-                                params => {
-                                    idx    => $entity->id(),
-                                    level  => $entity->state(),
-                                    min    => $entity->min(),
-                                    max    => $entity->max(),
-                                    text   => $entity->unit() ? $entity->state().' '.$entity->unit() : $entity->state(),
-                                },
-                            },
-                        },
-                    };
-            }
-            elsif ($entity->is_number()) {
-                $log->debug('Add number box entry for id '.$entity->id());
-                push @menu, {
-                    text     => $entity->friendly_name(),
-                    nextWindow => 'parent',
-                    input    => {
-                        initialText => $entity->state(),
-                        len => 1,
-                        allowedChars => '.0123456789',
-                    },
-                    window   => {
-                        text => $entity->friendly_name(),
-                    },
-                    actions  => {
-                        go => {
-                            player => 0,
-                            cmd    => ['setToHA'],
-                            params => {
-                                idx    => $entity->id(),
-                                cmd    => 'number',
-                                level  => '__TAGGEDINPUT__',
-                            },
-                        },
-                    },
-                };
-            }
-            elsif ($entity->is_cover_slider() || $entity->is_light_slider()) {
-                if (($entity->is_cover_slider() && !$prefs->client($client)->get('blindsPercentageHideOnOff')) || ($entity->is_light_slider() && !$prefs->client($client)->get('dimmerHideOnOff'))) {
-                    $log->debug('Add on/off slider entry for id '.$entity->id());
-                    push @menu, {
-                        text     => $entity->friendly_name(),
-                        checkbox => $entity->boolean_state(),
-                        actions  => {
-                            on   => {
-                                player => 0,
-                                cmd    => ['setToHA'],
-                                params => {
-                                    idx    => $entity->id(),
-                                    cmd    => 'on_off',
-                                    level  => 1,
-                                },
-                            },
-                            off  => {
-                                player => 0,
-                                cmd    => ['setToHA'],
-                                params => {
-                                    idx    => $entity->id(),
-                                    cmd    => 'on_off',
-                                    level  => 0,
-                                },
-                            },
-                        },
-                    };
-                }
-                if (($entity->is_cover_slider() && !$prefs->client($client)->get('blindsPercentageHideSlider')) || ($entity->is_light_slider() && !$prefs->client($client)->get('dimmerHideSlider'))) {
-                    $log->debug('Add slider entry for id '.$entity->id());
-                    push @menu, {
-                        text     => $entity->friendly_name(),
-                        actions  => {
-                            go => {
-                                player => 0,
-                                cmd    => ['menuHADimmer'],
-                                params => {
-                                    idx    => $entity->id(),
-                                    level  => $entity->current_position(),
-                                    min    => $entity->min(),
-                                    max    => $entity->max(),
-                                    text   => $entity->unit() ? $entity->percent().' '.$entity->unit() : $entity->percent(),
-                                },
-                            },
-                        },
-                    };
-                }
-            }
-            elsif ($entity->is_press()) {
-                push @menu, {
-                    text     => $entity->friendly_name(),
-                    radio    => 0,
-                    nextWindow => 'refresh',
-                    actions  => {
-                        do   => {
-                            player => 0,
-                            cmd    => ['setToHA'],
-                            params => {
-                                idx    => $entity->id(),
-                                cmd    => 'press',
-                                level  => 1,
-                            },
-                        },
-                    },
-                };
-            }
-            # Normal On/Off
-            elsif ($entity->is_on_off()) {
-                $log->debug('Add on/off entry for id '.$entity->id());
+                },
+            };
+        }
+        elsif ($entity->is_cover_slider() || $entity->is_light_slider()) {
+            if (($entity->is_cover_slider() && !$prefs->client($client)->get('blindsPercentageHideOnOff')) || ($entity->is_light_slider() && !$prefs->client($client)->get('dimmerHideOnOff'))) {
+                $log->debug('Add on/off slider entry for id '.$entity->id());
                 push @menu, {
                     text     => $entity->friendly_name(),
                     checkbox => $entity->boolean_state(),
@@ -421,12 +355,75 @@ sub _buildMenu {
                     },
                 };
             }
+            if (($entity->is_cover_slider() && !$prefs->client($client)->get('blindsPercentageHideSlider')) || ($entity->is_light_slider() && !$prefs->client($client)->get('dimmerHideSlider'))) {
+                $log->debug('Add slider entry for id '.$entity->id());
+                push @menu, {
+                    text     => $entity->friendly_name(),
+                    actions  => {
+                        go => {
+                            player => 0,
+                            cmd    => ['menuHADimmer'],
+                            params => {
+                                idx    => $entity->id(),
+                                level  => $entity->current_position(),
+                                min    => $entity->min(),
+                                max    => $entity->max(),
+                                text   => $entity->unit() ? $entity->percent().' '.$entity->unit() : $entity->percent(),
+                            },
+                        },
+                    },
+                };
+            }
+        }
+        elsif ($entity->is_press()) {
+            push @menu, {
+                text     => $entity->friendly_name(),
+                radio    => 0,
+                nextWindow => 'refresh',
+                actions  => {
+                    do   => {
+                        player => 0,
+                        cmd    => ['setToHA'],
+                        params => {
+                            idx    => $entity->id(),
+                            cmd    => 'press',
+                            level  => 1,
+                        },
+                    },
+                },
+            };
+        }
+        # Normal On/Off
+        elsif ($entity->is_on_off()) {
+            $log->debug('Add on/off entry for id '.$entity->id());
+            push @menu, {
+                text     => $entity->friendly_name(),
+                checkbox => $entity->boolean_state(),
+                actions  => {
+                    on   => {
+                        player => 0,
+                        cmd    => ['setToHA'],
+                        params => {
+                            idx    => $entity->id(),
+                            cmd    => 'on_off',
+                            level  => 1,
+                        },
+                    },
+                    off  => {
+                        player => 0,
+                        cmd    => ['setToHA'],
+                        params => {
+                            idx    => $entity->id(),
+                            cmd    => 'on_off',
+                            level  => 0,
+                        },
+                    },
+                },
+            };
         }
     }
 
     $menus{$client->id} = [@menu];
-    #Slim::Control::Request::notifyFromArray($client, ['pluginHAControlmenu']);
-    #Slim::Control::Jive::refreshPluginMenus($client);
 }
 
 sub getFromHA {

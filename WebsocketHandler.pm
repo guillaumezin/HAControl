@@ -807,7 +807,7 @@ sub _ws_callback {
         # normal update
         ##############################################################
         my $cb = $self->{_on_change};
-        eval { $cb->() if $cb; };
+        eval { $cb->($entity) if $cb; };
 
         return;
     }

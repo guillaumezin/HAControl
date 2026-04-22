@@ -20,6 +20,7 @@ use constant MODE_GET_SERVICES            => 4;
 use constant MODE_SUBSCRIBE_ENTITIES      => 5;
 use constant MODE_GET_MORE_SERVICES       => 6;
 use constant MODE_SUBSCRIBE_MORE_ENTITIES => 7;
+use constant MODE_PING                    => 8;
 
 sub new {
     my $class = shift;
@@ -34,8 +35,8 @@ sub new {
         _on_error  => shift,
 
         _id       => 1,
-        _backupid => 0,
         _mode     => MODE_NONE,
+        _pending  => {},
 
         _new_entities => Plugins::HAControl::Entities->new(),
         _entities     => Plugins::HAControl::Entities->new(),
@@ -50,17 +51,18 @@ sub new {
 
         _url_path => '',
 
-        _hidden_entity_id           => '',
-        _entities_id_in_error       => {},
-        _subscribe_hidden_callback  => undef,
+        _hidden_entity_id          => '',
+        _entities_id_in_error      => {},
+        _subscribe_hidden_callback => undef,
 
-        # reconnect management
         _reconnect_timer => undef,
         _reconnect_delay => 5,
         _reconnect_max   => 300,
         _reconnecting    => 0,
 
-        # shutdown flag
+        _ping_timer => undef,
+        _last_pong  => time(),
+
         _shutdown => 0,
     };
 
@@ -87,6 +89,7 @@ sub shutdown {
     $self->{_shutdown} = 1;
 
     $self->_kill_timer('_reconnect_timer');
+    $self->_kill_timer('_ping_timer');
 
     $self->close();
 }
@@ -96,6 +99,8 @@ sub close {
 
     $self->{_open}  = 0;
     $self->{_ready} = 0;
+
+    $self->_kill_timer('_ping_timer');
 
     if ($self->{_ws}) {
         eval { $self->{_ws}->close(); };
@@ -116,6 +121,8 @@ sub connect {
     $self->{_log}->info('Opening websocket ' . $self->{_url});
 
     $self->{_open} = 1;
+    $self->{_ready} = 0;
+    $self->{_pending} = {};
 
     my $ws = Slim::Networking::SimpleWS->new(
         $self->{_url},
@@ -181,8 +188,49 @@ sub _schedule_reconnect {
     );
 
     $self->{_reconnect_delay} *= 2;
-    $self->{_reconnect_delay} = $self->{_reconnect_max}
-        if $self->{_reconnect_delay} > $self->{_reconnect_max};
+
+    if ($self->{_reconnect_delay} > $self->{_reconnect_max}) {
+        $self->{_reconnect_delay} = $self->{_reconnect_max};
+    }
+}
+
+sub _start_ping {
+    my ($self) = @_;
+    return unless $self->{_open};
+
+    $self->_kill_timer('_ping_timer');
+
+    $self->{_ping_timer} = Slim::Utils::Timers::setTimer(
+        undef,
+        Time::HiRes::time() + 30,
+        sub {
+            delete $self->{_ping_timer};
+
+            return unless $self->{_open};
+            return unless $self->{_ws};
+
+            if (time() - $self->{_last_pong} > 90) {
+                $self->{_log}->warn('No pong received for 90s');
+                $self->_error_callback();
+                return;
+            }
+
+            eval {
+                $self->_send_with_id(
+                    '"type":"ping"',
+                    MODE_PING
+                );
+            };
+
+            if ($@) {
+                $self->{_log}->error("Ping failed: $@");
+                $self->_error_callback();
+                return;
+            }
+
+            $self->_start_ping();
+        }
+    );
 }
 
 sub _kill_timer {
@@ -206,8 +254,10 @@ sub _connected_callback {
 
     $self->{_reconnecting}    = 0;
     $self->{_reconnect_delay} = 5;
+    $self->{_last_pong}       = time();
 
     $self->_kill_timer('_reconnect_timer');
+    $self->_start_ping();
 }
 
 sub _error_callback {
@@ -223,6 +273,7 @@ sub _error_callback {
     $self->close();
 
     my $cb = $self->{_on_error};
+
     eval { $cb->() if $cb; };
 
     $self->_schedule_reconnect('socket error');
@@ -233,27 +284,35 @@ sub _error_callback {
 ##############################################################################
 
 sub _send_with_id {
-    my ($self, $buf, $entity) = @_;
+    my ($self, $buf, $mode, $entity) = @_;
 
-    $self->{_backupid} = $self->{_id}++;
+    my $id = $self->{_id}++;
 
     if ($entity) {
-        $self->{_entities}->commid($entity,     $self->{_backupid});
-        $self->{_new_entities}->commid($entity, $self->{_backupid});
+        $self->{_entities}->commid($entity, $id);
+        $self->{_new_entities}->commid($entity, $id);
     }
 
-    my $msg = '{"id":' . $self->{_backupid} . ',' . $buf . '}';
+    $self->{_pending}{$id} = {
+        mode   => $mode,
+        entity => $entity,
+        ts     => time(),
+    };
+
+    my $msg = '{"id":' . $id . ',' . $buf . '}';
 
     $self->{_log}->debug('Send message ' . $msg);
 
     $self->{_ws}->send($msg);
+
+    return $id;
 }
 
 sub _enqueue {
     my ($self, $msg, $mode, $entity) = @_;
 
     push @{ $self->{_queue} },        $msg;
-    push @{ $self->{_queue_mode} },   $mode // $self->{_mode};
+    push @{ $self->{_queue_mode} },   $mode;
     push @{ $self->{_queue_entity} }, $entity;
 }
 
@@ -265,20 +324,21 @@ sub _send_next {
     my $mode   = shift @{ $self->{_queue_mode} };
     my $entity = shift @{ $self->{_queue_entity} };
 
-    $self->{_mode} = $mode;
-    $self->_send_with_id($msg, $entity);
+    $self->_send_with_id($msg, $mode, $entity);
 }
 
 sub _send_or_enqueue {
     my ($self, $msg, $mode, $entity) = @_;
 
     if ($self->{_ready} && $self->{_open}) {
-        $self->{_mode} = $mode if defined $mode;
-        $self->_send_with_id($msg, $entity);
+        $self->_send_with_id($msg, $mode, $entity);
     }
     else {
         $self->_enqueue($msg, $mode, $entity);
-        $self->connect() unless $self->{_open};
+
+        if (!$self->{_open}) {
+            $self->connect();
+        }
     }
 }
 
@@ -303,10 +363,11 @@ sub send_command {
     my $entity = $self->{_entities}->by_id($id);
     return unless $entity;
 
-    my $msg = '"return_response":false,' .
-              $entity->create_call_service($cmd, $level);
+    my $msg =
+        '"return_response":false,' .
+        $entity->create_call_service($cmd, $level);
 
-    $self->_send_or_enqueue($msg, undef, $entity);
+    $self->_send_or_enqueue($msg, MODE_NONE, $entity);
 }
 
 sub entities {
@@ -326,9 +387,13 @@ sub subscribe_hidden_entity {
     $self->{_subscribe_hidden_callback} = $cb;
 
     my $msg =
-      '"type":"get_services_for_target","target":{"entity_id":["' . $id . '"]}';
+        '"type":"get_services_for_target",' .
+        '"target":{"entity_id":["' . $id . '"]}';
 
-    $self->_send_or_enqueue($msg, MODE_GET_MORE_SERVICES);
+    $self->_send_or_enqueue(
+        $msg,
+        MODE_GET_MORE_SERVICES
+    );
 }
 
 sub clear_entities_id_in_error {
@@ -341,6 +406,24 @@ sub is_entity_id_in_error {
     return exists $self->{_entities_id_in_error}{$id};
 }
 
+sub on_change {
+    my ($self, $cb) = @_;
+    $self->{_on_change} = $cb;
+    return $self;
+}
+
+sub on_init {
+    my ($self, $cb) = @_;
+    $self->{_on_init} = $cb;
+    return $self;
+}
+
+sub on_error {
+    my ($self, $cb) = @_;
+    $self->{_on_error} = $cb;
+    return $self;
+}
+
 ##############################################################################
 # main callback
 ##############################################################################
@@ -348,227 +431,388 @@ sub is_entity_id_in_error {
 sub _ws_callback {
     my ($self, $buf) = @_;
     return unless $self;
-    
+
     $self->{_log}->debug('Message: ' . $buf);
+
     my $decoded = eval { decode_json(encode_utf8($buf)) };
     if ($@) {
-        $self->{_log}->error("JSON decode error : $@");
+        $self->{_log}->error("JSON decode error: $@");
         return;
     }
-    if ($decoded->{'type'} eq 'auth_required') {
-        my $msg = '{"type":"auth","access_token":"scrambled"}';
-        $self->{_log}->debug('Send auth '.$msg);
-        $msg = '{"type":"auth","access_token":"'.$self->{_token}.'"}';
+
+    ######################################################################
+    # recover request context by id
+    ######################################################################
+    my $ctx;
+    if (exists $decoded->{id}) {
+        $ctx = delete $self->{_pending}{ $decoded->{id} };
+    }
+
+    ######################################################################
+    # AUTH FLOW
+    ######################################################################
+
+    if ($decoded->{type} eq 'auth_required') {
+
+        my $msg = '{"type":"auth","access_token":"' .
+                  $self->{_token} . '"}';
+
+        $self->{_log}->debug('Send auth');
         $self->{_ws}->send($msg);
+        return;
     }
-    elsif ($decoded->{'type'} eq 'auth_ok') {
-        $self->{_mode} = MODE_GET_LIST_BOARDS;
-        my $msg = '"type":"lovelace/dashboards/list"';
-        $self->_send_with_id($msg);
-        $self->{_log}->debug('Ask list '.$msg);
+
+    if ($decoded->{type} eq 'auth_ok') {
+
+        $self->{_log}->debug('Auth OK');
+
+        $self->_send_with_id(
+            '"type":"lovelace/dashboards/list"',
+            MODE_GET_LIST_BOARDS
+        );
+        return;
     }
-    elsif (($decoded->{'type'} eq 'result') && $decoded->{'success'} && !$decoded->{'error'}) {
-        if (($self->{_mode} == MODE_GET_LIST_BOARDS) && ($decoded->{'id'} == $self->{_backupid})) {
-            $self->{_log}->debug('Received list');
-            foreach my $obj (@{ $decoded->{'result'} }) {
-                if ((lc($obj->{'id'}) eq lc($self->{_dashboard})) || (lc($obj->{'title'}) eq lc($self->{_dashboard})) || (lc($obj->{'url_path'}) eq lc($self->{_dashboard}))) {
-                    $self->{_url_path} = $obj->{'url_path'};
+
+    if ($decoded->{type} eq 'auth_invalid') {
+        $self->{_log}->error('Authentication failed');
+        $self->_schedule_reconnect('auth invalid');
+        return;
+    }
+
+    ######################################################################
+    # PONG
+    ######################################################################
+
+    if ($decoded->{type} eq 'pong') {
+        $self->{_last_pong} = time();
+        $self->{_log}->debug('Pong received');
+        return;
+    }
+
+    ######################################################################
+    # RESULT SUCCESS
+    ######################################################################
+
+    if ($decoded->{type} eq 'result'
+        && $decoded->{success}
+        && !$decoded->{error})
+    {
+        unless ($ctx) {
+            $self->{_log}->debug('Result without pending context');
+            return;
+        }
+
+        ##############################################################
+        # dashboards/list
+        ##############################################################
+        if ($ctx->{mode} == MODE_GET_LIST_BOARDS) {
+
+            $self->{_log}->debug('Received dashboard list');
+
+            foreach my $obj (@{ $decoded->{result} || [] }) {
+
+                if (
+                    lc($obj->{id} // '')       eq lc($self->{_dashboard}) ||
+                    lc($obj->{title} // '')    eq lc($self->{_dashboard}) ||
+                    lc($obj->{url_path} // '') eq lc($self->{_dashboard})
+                ) {
+                    $self->{_url_path} = $obj->{url_path};
                     last;
                 }
             }
-            $self->{_mode} = MODE_SUBSCRIBE_BOARDS;
-            my $msg = '"type":"subscribe_events","event_type":"lovelace_updated"';
-            $self->_send_with_id($msg);
-            $self->{_log}->debug('Got list url '.$self->{_url_path}. ' now send '.$msg);
+
+            $self->_send_with_id(
+                '"type":"subscribe_events","event_type":"lovelace_updated"',
+                MODE_SUBSCRIBE_BOARDS
+            );
+            return;
         }
-        elsif (($self->{_mode} == MODE_SUBSCRIBE_BOARDS) && ($decoded->{'id'} == $self->{_backupid})) {
-            $self->{_mode} = MODE_GET_ENTITIES;
-            my $msg = '"type":"lovelace/config","url_path":"' . $self->{_url_path} . '"';
-            $self->_send_with_id($msg);
-            $self->{_log}->debug('Lovelace subscribed, now send '.$msg);
+
+        ##############################################################
+        # subscribe lovelace updates
+        ##############################################################
+        if ($ctx->{mode} == MODE_SUBSCRIBE_BOARDS) {
+
+            $self->_send_with_id(
+                '"type":"lovelace/config","url_path":"' .
+                $self->{_url_path} . '"',
+                MODE_GET_ENTITIES
+            );
+            return;
         }
-        elsif (($self->{_mode} == MODE_GET_ENTITIES) && ($decoded->{'id'} == $self->{_backupid})) {
-            $self->{_log}->debug('Received entities');
-            $self->{_new_entities} = Plugins::HAControl::Entities->new();
-            $self->{_mode} = MODE_GET_SERVICES;
-            foreach my $view (@{ $decoded->{'result'}->{'views'} }) {
-                next unless $view->{'badges'};
-                foreach my $badge (@{ $view->{'badges'} }) {
-                    next unless $badge->{'type'} eq 'entity';
-                    if ($badge->{'entity'}) {
-                        $self->{_log}->debug('Got entity '.$badge->{'entity'});
-                        my $entity = Plugins::HAControl::Entity->new($badge->{'entity'}, 0);
-                        $self->{_new_entities}->add($entity);
-                    }
+
+        ##############################################################
+        # get entities
+        ##############################################################
+        if ($ctx->{mode} == MODE_GET_ENTITIES) {
+
+            $self->{_new_entities} =
+                Plugins::HAControl::Entities->new();
+
+            foreach my $view (@{ $decoded->{result}{views} || [] }) {
+
+                next unless $view->{badges};
+
+                foreach my $badge (@{ $view->{badges} }) {
+
+                    next unless ($badge->{type} || '') eq 'entity';
+                    next unless $badge->{entity};
+
+                    my $entity =
+                        Plugins::HAControl::Entity->new(
+                            $badge->{entity}, 0
+                        );
+
+                    $self->{_new_entities}->add($entity);
                 }
             }
-            foreach my $entity ($self->{_new_entities}->all_entities()) {
-                $self->{_log}->debug('Trigger get_services for '.$entity->id());
-                my $msg = '"type":"get_services_for_target","target":{"entity_id": ["'.$entity->id().'"]}';
-                $self->_send_with_id($msg, $entity);
+
+            foreach my $entity (
+                $self->{_new_entities}->all_entities()
+            ) {
+
+                my $msg =
+                    '"type":"get_services_for_target",' .
+                    '"target":{"entity_id":["' .
+                    $entity->id() . '"]}';
+
+                $self->_send_with_id(
+                    $msg,
+                    MODE_GET_SERVICES,
+                    $entity
+                );
             }
+
+            return;
         }
-        elsif (($self->{_mode} == MODE_GET_SERVICES) && $decoded->{'id'}) {
-            $self->{_log}->debug('Received services');
-            my $entity = $self->{_new_entities}->by_commid($decoded->{'id'});
+
+        ##############################################################
+        # get services
+        ##############################################################
+        if ($ctx->{mode} == MODE_GET_SERVICES) {
+
+            my $entity = $ctx->{entity};
+            return unless $entity;
+
+            $entity->analyse_services($decoded->{result});
+
+            if ($self->{_new_entities}->all_services_received()) {
+
+                foreach my $e (
+                    $self->{_new_entities}->all_entities()
+                ) {
+                    my $msg =
+                        '"type":"subscribe_entities",' .
+                        '"entity_ids":["' .
+                        $e->id() . '"]';
+
+                    $self->_send_with_id(
+                        $msg,
+                        MODE_SUBSCRIBE_ENTITIES,
+                        $e
+                    );
+                }
+            }
+
+            return;
+        }
+
+        ##############################################################
+        # get hidden entity services
+        ##############################################################
+        if ($ctx->{mode} == MODE_GET_MORE_SERVICES) {
+
+            my $entity = $self->{_entities}->add(
+                Plugins::HAControl::Entity->new(
+                    $self->{_hidden_entity_id}, 1
+                )
+            );
+
             if ($entity) {
-                $self->{_log}->debug('Got services for entity '.$entity->id());
-                $entity->analyse_services($decoded->{'result'});
-                if ($self->{_new_entities}->all_services_received()) {
-                    $self->{_mode} = MODE_SUBSCRIBE_ENTITIES;
-                    foreach my $entity ($self->{_new_entities}->all_entities()) {
-                        $self->{_log}->debug('Trigger subscribe_entities for '.$entity->id());
-                        my $msg = '"type":"subscribe_entities","entity_ids":["'.$entity->id().'"]';
-                        $self->_send_with_id($msg, $entity);
-                    }
-                }
+                $entity->analyse_services($decoded->{result});
+
+                my $msg =
+                    '"type":"subscribe_entities",' .
+                    '"entity_ids":["' .
+                    $entity->id() . '"]';
+
+                $self->_send_with_id(
+                    $msg,
+                    MODE_SUBSCRIBE_MORE_ENTITIES,
+                    $entity
+                );
             }
-            else {
-                $self->{_log}->debug('Entity not found');
-                foreach my $entity2 ($self->{_new_entities}->all_entities()) {
-                    $self->{_log}->debug('Entity '. $entity2->id() . ' with commid ' . $entity2->commid() . ' in collection');
-                }
-            }
+
+            return;
         }
-        elsif (($self->{_mode} == MODE_GET_MORE_SERVICES) && ($decoded->{'id'} == $self->{_backupid})) {
-            $self->{_ready} = 0;
-            $self->{_log}->debug('Received more services');
-            my $entity = $self->{_entities}->add(Plugins::HAControl::Entity->new($self->{_hidden_entity_id}, 1));
-            if ($entity) {
-                $entity->analyse_services($decoded->{'result'});
-                $self->{_mode} = MODE_SUBSCRIBE_MORE_ENTITIES;
-                $self->{_log}->debug('Trigger subscribe_entities for '.$entity->id());
-                my $msg = '"type":"subscribe_entities","entity_ids":["'.$entity->id().'"]';
-                $self->_send_with_id($msg, $entity);
-            }
+
+        return;
+    }
+
+    ######################################################################
+    # RESULT ERROR
+    ######################################################################
+
+    if ($decoded->{type} eq 'result'
+        && !$decoded->{success}
+        && $decoded->{error})
+    {
+        my $msg = $decoded->{error}{message} || 'unknown error';
+
+        $self->{_log}->error("HA error: $msg");
+
+        my $cb = $self->{_subscribe_hidden_callback};
+
+        if ($cb) {
+            eval { $cb->(); };
+            $self->{_subscribe_hidden_callback} = undef;
         }
+
+        $self->_on_ready();
+        return;
     }
-    elsif ($decoded->{'id'} && ($decoded->{'type'} eq 'event') && $decoded->{'event'} &&    $decoded->{'event'}->{'event_type'} && ($decoded->{'event'}->{'event_type'} eq 'lovelace_updated') && $decoded->{'event'}->{'data'} && $decoded->{'event'}->{'data'}->{'url_path'} && ($decoded->{'event'}->{'data'}->{'url_path'} eq $self->{_url_path})) {
-        $self->{_log}->debug('Lovelace event, reconnect');
-        $self->connect();
-    }
-    elsif ($decoded->{'id'} && ($decoded->{'type'} eq 'event') && $decoded->{'event'}) {
-        my $entity_id;
-        my $entity;
-        my $key = 'c';
-        my $is_added = 0;
-        if ($decoded->{'event'}->{'a'}) {
-            $key = 'a';
-            ($entity_id) = keys %{ $decoded->{'event'}->{$key} };
-            if (!$entity_id) {
-                $self->{_log}->debug('Empty event received');
+
+    ######################################################################
+    # EVENTS
+    ######################################################################
+
+    if ($decoded->{type} eq 'event'
+        && $decoded->{event})
+    {
+        ##############################################################
+        # lovelace updated
+        ##############################################################
+        if (($decoded->{event}{event_type} || '') eq 'lovelace_updated')
+        {
+            my $path =
+                $decoded->{event}{data}{url_path} || '';
+
+            if ($path eq $self->{_url_path}) {
+                $self->{_log}->info(
+                    'Dashboard changed, reconnecting'
+                );
+                $self->connect();
                 return;
             }
+        }
+
+        ##############################################################
+        # entity state update
+        ##############################################################
+        my $data = $decoded->{event};
+
+        my $key;
+        my $is_added = 0;
+        my $entity_id;
+        my $entity;
+
+        if ($data->{a}) {
+            $key = 'a';
+            ($entity_id) = keys %{ $data->{a} };
             $entity = $self->{_new_entities}->by_id($entity_id);
             $is_added = 1;
         }
-        elsif ($decoded->{'event'}->{'c'}) {
-            ($entity_id) = keys %{ $decoded->{'event'}->{$key} };
+        elsif ($data->{c}) {
+            $key = 'c';
+            ($entity_id) = keys %{ $data->{c} };
             $entity = $self->{_entities}->by_id($entity_id);
         }
-        if ($entity) {
-            $self->{_log}->debug('Got states for entity '.$entity->id());
-            my $data;
+
+        return unless $entity;
+
+        my $payload =
+            $is_added
+            ? $data->{$key}{$entity_id}
+            : $data->{$key}{$entity_id}{'+'};
+
+        my $attr = $payload->{a};
+
+        if ($attr) {
+
+            $entity->friendly_name($attr->{friendly_name})
+                if exists $attr->{friendly_name};
+
+            $entity->options($attr->{options})
+                if exists $attr->{options};
+
+            $entity->min($attr->{min})
+                if exists $attr->{min};
+
+            $entity->max($attr->{max})
+                if exists $attr->{max};
+
+            $entity->step($attr->{step})
+                if exists $attr->{step};
+
+            $entity->mode($attr->{mode})
+                if exists $attr->{mode};
+
+            $entity->unit($attr->{unit_of_measurement})
+                if exists $attr->{unit_of_measurement};
+
+            $entity->current_position($attr->{current_position})
+                if exists $attr->{current_position};
+
+            $entity->current_position($attr->{brightness})
+                if exists $attr->{brightness};
+        }
+
+        if (exists $payload->{s}) {
+            $entity->state($payload->{s});
+        }
+
+        ##############################################################
+        # hidden entity completed
+        ##############################################################
+        if ($entity->is_hidden()) {
+
             if ($is_added) {
-                $data = $decoded->{'event'}->{$key}->{$entity_id};
-            }
-            else {
-                $data = $decoded->{'event'}->{$key}->{$entity_id}->{'+'};
-            }
-            my $attr = $data->{'a'};
-            if ($attr) {
-                if ($attr->{'restored'}) {                    
-                    $self->{_log}->debug('Trigger get_services after supported_features restored for '.$entity->id());
-                    my $msg = '"type":"get_services_for_target","target":{"entity_id": ["'.$entity->id().'"]}';
-                    $self->_send_with_id($msg, $entity);
-                    return;
-                }
-                if (defined $attr->{'friendly_name'}) {
-                    $self->{_log}->debug('Got name '.$attr->{'friendly_name'});
-                    $entity->friendly_name($attr->{'friendly_name'});
-                }
-                if (defined $attr->{'options'}) {
-                    $entity->options($attr->{'options'});
-                }
-                if (defined $attr->{'min'}) {
-                    $entity->min($attr->{'min'});
-                }
-                if (defined $attr->{'max'}) {
-                    $entity->max($attr->{'max'});
-                }
-                if (defined $attr->{'step'}) {
-                    $entity->step($attr->{'step'});
-                }
-                if (defined $attr->{'mode'}) {
-                    $entity->mode($attr->{'mode'});
-                }
-                if (defined $attr->{'unit_of_measurement'}) {
-                    $entity->unit($attr->{'unit_of_measurement'});
-                }
-                if (defined $attr->{'current_position'}) {
-                    $self->{_log}->debug('Change current position to '.$attr->{'current_position'});
-                    $entity->current_position($attr->{'current_position'});
-                }
-                if (defined $attr->{'brightness'}) {
-                    $self->{_log}->debug('Change current brightness to '.$attr->{'brightness'});
-                    $entity->current_position($attr->{'brightness'});
-                }
-            }
-            if (defined $data->{'s'}) {
-                $self->{_log}->debug('Got state '.$data->{'s'});
-                $entity->state($data->{'s'});
-            }
-            if ($entity->is_hidden()) {
-                if ($is_added) {
-                    $self->{_log}->debug('New hidden entity state received');
-                    my $cb = $self->{_subscribe_hidden_callback};
-                    if ($cb) {
-                        $self->{_log}->debug('Calling subscribe_hidden_entity callback (after add)');
-                        $cb->();
-                        $self->{_subscribe_hidden_callback} = undef;
-                    }
-                    $self->_on_ready();
-                }
-            }
-            elsif ($is_added) {
-                if ($self->{_new_entities}->all_states_received()) {
-                    $self->{_log}->debug('All entities ready');
-                    $self->{_entities} = $self->{_new_entities};
-                    my $cb = $self->{_on_init};
-                    if ($cb) {
-                        $self->{_log}->debug('Calling oninit callback');
-                        $cb->();
-                    }
-                    $self->_on_ready();
-                }
-            }
-            else {
-                my $cb = $self->{_on_change};
+                my $cb =
+                    $self->{_subscribe_hidden_callback};
+
                 if ($cb) {
-                    $self->{_log}->debug('Calling onchange callback');
-                    $cb->();
+                    eval { $cb->(); };
+                    $self->{_subscribe_hidden_callback}
+                        = undef;
                 }
+
+                $self->_on_ready();
             }
+
+            return;
         }
-    }
-    elsif (($decoded->{'type'} eq 'result') && !$decoded->{'success'} && $decoded->{'error'} && $decoded->{'error'}->{'code'} && $decoded->{'error'}->{'message'}) {
-        my $cb = $self->{_subscribe_hidden_callback};
-        if ($cb) {
-            $self->_add_entities_id_in_error($self->{_hidden_entity_id});
-            $self->{_log}->debug('Calling subscribe_hidden_entity callback (after error)');
-            $cb->();
-            $self->{_subscribe_hidden_callback} = undef;
-        }
-        else {
-            $self->{_log}->debug('Error received from websocket: '.$decoded->{'error'}->{'message'}. ' (code: '.$decoded->{'error'}->{'code'} . ')');
-            my $cb = $self->{_on_error};
-            if ($cb) {
-                $self->{_log}->debug('Calling onerror callback');
-                $cb->();
+
+        ##############################################################
+        # init complete
+        ##############################################################
+        if ($is_added) {
+
+            if ($self->{_new_entities}
+                ->all_states_received())
+            {
+                $self->{_entities} =
+                    $self->{_new_entities};
+
+                my $cb = $self->{_on_init};
+
+                eval { $cb->() if $cb; };
+
+                $self->_on_ready();
             }
+
+            return;
         }
-        $self->_on_ready();
+
+        ##############################################################
+        # normal update
+        ##############################################################
+        my $cb = $self->{_on_change};
+        eval { $cb->() if $cb; };
+
+        return;
     }
 }
 
 1;
+
+__END__

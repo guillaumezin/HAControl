@@ -164,7 +164,7 @@ sub unit {
 sub boolean_state {
     my ($self) = @_;
 
-    if (($self->{_state} eq 'off') || ($self->{_state} eq 'close')) {
+    if (($self->{_state} eq 'off') || ($self->{_state} eq 'closed')) {
         return 0;
     }
     else {
@@ -331,7 +331,7 @@ sub create_call_service {
     }
     elsif (($cmd eq 'slider') && $self->{_is_cover_position}) {
         if (int($level) <= $self->{_min}) {
-            $self->{_state} = 'close';
+            $self->{_state} = 'closed';
         }
         else {
             $self->{_state} = 'open';

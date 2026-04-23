@@ -1,0 +1,20 @@
+<?xml version="1.0"?>
+<extensions>
+	
+	<details>
+		<title lang="EN">Home Asssistant Control repo</title>
+	</details>
+	
+	<plugins>
+		<plugin name="HAControl" version="1.0.0" minTarget="7.4" maxTarget="*">
+			<title lang="EN">Domoticz Control</title>
+			<desc  lang="EN">Control your Home Asssistan entities from your Jive based player. Parameters are located in player settings</desc>
+			<desc  lang="FR">Contrôle de vos entités Home Asssistan depuis votre platine basée sur Jive. Le paramétrage se fait dans l'onglet platine</desc>
+			<category>tools</category>
+			<creator>Guillaume Zin</creator>
+			<url>https://guillaumezin.github.io/HAControl/hacontrol-v1.0.0.zip</url>			
+			<sha>a6f4709113682a92512479ae87a242bf085e3bbc</sha>
+		</plugin>
+	</plugins>
+	
+</extensions>

@@ -11,7 +11,7 @@ use Slim::Utils::Log;
 use Slim::Utils::Timers;
 use Slim::Utils::Prefs;
 use Time::HiRes;
-use Slim::Utils::Strings qw (string);
+use Slim::Utils::Strings qw(cstring);
 use Plugins::HAControl::WebsocketHandler;
 use Plugins::HAControl::Entities;
 use Plugins::HAControl::Entity;
@@ -189,7 +189,7 @@ sub menuHADimmer {
     my $text = $request->getParam('text');
 
     $log->debug('Slider menu');
-
+    
     my $slider = {
         slider   => 1,
         min      => $min,
@@ -295,7 +295,7 @@ sub _buildMenu {
                             level  => $entity->state(),
                             min    => $entity->min(),
                             max    => $entity->max(),
-                            text   => $entity->unit() ? $entity->state().' '.$entity->unit() : $entity->state(),
+                            text   => cstring($client, 'PLUGIN_HACONTROL_INITIAL_VALUE').' '.($entity->unit() ? $entity->state().' '.$entity->unit() : $entity->state()),
                         },
                     },
                 },
@@ -368,7 +368,8 @@ sub _buildMenu {
                                 level  => $entity->current_position(),
                                 min    => $entity->min(),
                                 max    => $entity->max(),
-                                text   => $entity->unit() ? $entity->percent().' '.$entity->unit() : $entity->percent(),
+                                #text   => cstring($client, 'PLUGIN_HACONTROL_INITIAL_VALUE').' '. $entity->unit() ? $entity->percent().' '.$entity->unit() : $entity->percent(),
+                                text   => '',
                             },
                         },
                     },
@@ -540,7 +541,6 @@ sub setAlarmToHA {
     }
 }
 
-#TODO : à améliorer, "Processing request" une seule fois, ensuite je n'ai que du "Already processing"
 sub _manageMacroStringQueue {
     my $request = shift;
 

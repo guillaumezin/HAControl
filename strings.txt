@@ -5,6 +5,10 @@ PLUGIN_HACONTROL
 	EN	Home Assistant controller
 	FR	Contrôle Home Assistant
 
+PLUGIN_HACONTROL_INITIAL_VALUE
+	EN	Initial value:
+	FR	Valeure initiale :
+
 PLUGIN_HACONTROL_DESC
 	EN	Control your Home Assistant devices from your Jive based player. Parameters are located in player settings
 	FR	Contrôle de vos périphériques Home Assistant depuis votre platine basée sur Jive. Le paramétrage se fait dans l'onglet platine

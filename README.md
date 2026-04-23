@@ -1,7 +1,7 @@
 Home Assistant Control
 ================
 
-This is a [Squeezebox](http://www.mysqueezebox.com) (Squeeze / Logitech Media / Lyrion Music  Server) plugin for controlling [Home Assistant](https://www.home-assistant.io) entities from your Jive based player screen (Squeezebox radio, Squeezebox Touch, UE Smart Radio with squeezebox firmware and [Jive Lite](https://github.com/ralph-irving/jivelite) and its derivatives).
+This is a [Squeezebox](http://www.mysqueezebox.com) (Squeezebox / Logitech Media / Lyrion Music  Server) plugin for controlling [Home Assistant](https://www.home-assistant.io) entities from your Jive based player screen (Squeezebox radio, Squeezebox Touch, UE Smart Radio with squeezebox firmware and [Jive Lite](https://github.com/ralph-irving/jivelite) and its derivatives).
 
 The plugin can control lights, covers, switches, button, boolean, select and number inputs.
 
@@ -21,9 +21,9 @@ Usage
 
 1. You can associate a Home Assistant entity that will turn on and off at the same time as a player.
 
-1. If you have [Custom Clock, Custom Clock Helper](http://wiki.slimdevices.com/index.php/Custom_Clock_applet) and [SuperDateTime (weather.com version 5.9.42 onwards)](https://sourceforge.net/projects/sdt-weather-com), Home Assistant can expose values based on entities state to Custom Clock Helper. The formatting is explained in Home Assistant settings of the player settings page.
+1. If you have [Custom Clock, Custom Clock Helper](http://wiki.slimdevices.com/index.php/Custom_Clock_applet) and [SuperDateTime (weather.com version 5.9.42 onwards)](https://sourceforge.net/projects/sdt-weather-com), Home Assistant can expose values based on entities state to Custom Clock Helper. The formatting is explained in Home Assistant control settings of the player settings page.
 
-1. Home Assistant control should appear on the main screen of your Jive based players.
+1. Home Assistant control should appear in home menu of your Jive based players.
 
 Limitations
 -----------

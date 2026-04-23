@@ -15,7 +15,7 @@ Usage
 
 1. For each player, go to the player settings page and choose Home Assistant Control settings.
 
-1. There you can configure URL access for Home Assistant, access token (you can generate one in and Home Assistant dashboard name where you want to grab entities to get them on the player screen.
+1. There you can configure URL access for Home Assistant, access token (you can generate one in the bottom of your [Home Assistant profile security panel](https://my.home-assistant.io/redirect/profile_security/)) and Home Assistant dashboard name where you want to grab entities to get them on the player screen.
 
 1. You can also associate alarms and snoozes with Home Assistant devices (switch commands only). This can be useful to activate Home Assistant automation through a switch input for instance.
 

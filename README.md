@@ -8,7 +8,7 @@ The plugin can control lights, covers, switches, button, boolean, select and num
 Installation
 ------------
 
-To install the plugin, add the repository URL https://guillaumezin.github.io/HAControl/repo.xml to your Lyrion plugin settings page then activate the plugin.
+To install the plugin, add the repository URL `https://guillaumezin.github.io/HAControl/repo.xml` to your Lyrion plugin settings page then activate the plugin.
 
 Usage
 -----

@@ -459,7 +459,7 @@ sub powerCallback {
     my $level;
     my $idx = $prefs->client($client)->get('deviceOnOff');
 
-    if ($idx > 0) {
+    if ($idx) {
         if ($client->power()) {
             $level = 1;
         }

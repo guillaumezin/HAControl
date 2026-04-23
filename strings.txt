@@ -2,7 +2,7 @@
 # Strings for HAControl
 
 PLUGIN_HACONTROL
-	EN	Home Assistant controller
+	EN	Home Assistant control
 	FR	Contrôle Home Assistant
 
 PLUGIN_HACONTROL_INITIAL_VALUE

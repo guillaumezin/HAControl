@@ -103,39 +103,53 @@ sub close {
     $self->_kill_timer('_ping_timer');
 
     if ($self->{_ws}) {
-        eval { $self->{_ws}->close(); };
-        $self->{_ws} = undef;
+
+        my $ws = delete $self->{_ws};
+
+        eval { $ws->close(); };
     }
 }
 
 sub connect {
     my ($self) = @_;
+
     return unless $self;
     return if $self->{_shutdown};
-    return if $self->{_reconnecting};
 
-    $self->{_reconnecting} = 1;
+    # Si déjà socket vivant, inutile
+    if ($self->{_ws} && $self->{_open}) {
+        $self->{_log}->debug('connect skipped: already open');
+        return;
+    }
 
     $self->close();
 
-    $self->{_log}->info('Opening websocket ' . $self->{_url});
+    $self->{_log}->info(
+        'Opening websocket ' . $self->{_url}
+    );
 
-    $self->{_open} = 1;
+    $self->{_open}  = 1;
     $self->{_ready} = 0;
     $self->{_pending} = {};
 
     my $ws = Slim::Networking::SimpleWS->new(
         $self->{_url},
+
         sub {
             eval { $self->_connected_callback(@_) };
             if ($@) {
-                $self->{_log}->error("Error in _connected_callback: $@");
+                $self->{_log}->error(
+                    "Connected callback error: $@"
+                );
             }
         },
+
         sub {
             eval { $self->_error_callback(@_) };
             if ($@) {
-                $self->{_log}->error("Error in constructor error callback: $@");
+                $self->{_log}->error(
+                    "Constructor error callback: $@"
+                );
             }
         }
     );
@@ -143,16 +157,22 @@ sub connect {
     $self->{_ws} = $ws;
 
     $ws->listenAsync(
+
         sub {
             eval { $self->_ws_callback(@_) };
             if ($@) {
-                $self->{_log}->error("Error in _ws_callback: $@");
+                $self->{_log}->error(
+                    "WS callback error: $@"
+                );
             }
         },
+
         sub {
             eval { $self->_error_callback(@_) };
             if ($@) {
-                $self->{_log}->error("Error in listenAsync error callback: $@");
+                $self->{_log}->error(
+                    "listenAsync error callback: $@"
+                );
             }
         }
     );
@@ -164,73 +184,117 @@ sub connect {
 
 sub _schedule_reconnect {
     my ($self, $reason) = @_;
+
     return unless $self;
     return if $self->{_shutdown};
-    return if $self->{_reconnect_timer};
+
+    # déjà planifié
+    if ($self->{_reconnect_timer}) {
+        $self->{_log}->debug(
+            'Reconnect already scheduled'
+        );
+        return;
+    }
 
     my $delay = $self->{_reconnect_delay};
 
-    $self->{_log}->warn("Reconnect scheduled in ${delay}s ($reason)");
+    $self->{_reconnecting} = 1;
 
-    $self->{_reconnect_timer} = Slim::Utils::Timers::setTimer(
-        undef,
-        Time::HiRes::time() + $delay,
-        sub {
-            delete $self->{_reconnect_timer};
-
-            eval { $self->connect(); };
-
-            if ($@) {
-                $self->{_log}->error("Reconnect failed: $@");
-                $self->_schedule_reconnect('connect exception');
-            }
-        }
+    $self->{_log}->warn(
+        "Reconnect scheduled in ${delay}s ($reason)"
     );
+
+    $self->{_reconnect_timer} =
+        Slim::Utils::Timers::setTimer(
+            undef,
+            Time::HiRes::time() + $delay,
+
+            sub {
+
+                delete $self->{_reconnect_timer};
+
+                return if $self->{_shutdown};
+
+                eval {
+                    $self->{_log}->warn(
+                        'Reconnect timer fired'
+                    );
+
+                    $self->connect();
+                };
+
+                if ($@) {
+                    $self->{_log}->error(
+                        "Reconnect failed: $@"
+                    );
+
+                    $self->_schedule_reconnect(
+                        'connect exception'
+                    );
+                }
+            }
+        );
 
     $self->{_reconnect_delay} *= 2;
 
-    if ($self->{_reconnect_delay} > $self->{_reconnect_max}) {
-        $self->{_reconnect_delay} = $self->{_reconnect_max};
+    if ($self->{_reconnect_delay}
+        > $self->{_reconnect_max})
+    {
+        $self->{_reconnect_delay}
+            = $self->{_reconnect_max};
     }
 }
 
 sub _start_ping {
     my ($self) = @_;
+
     return unless $self->{_open};
+    return unless $self->{_ws};
 
     $self->_kill_timer('_ping_timer');
 
-    $self->{_ping_timer} = Slim::Utils::Timers::setTimer(
-        undef,
-        Time::HiRes::time() + 30,
-        sub {
-            delete $self->{_ping_timer};
+    $self->{_ping_timer} =
+        Slim::Utils::Timers::setTimer(
+            undef,
+            Time::HiRes::time() + 30,
 
-            return unless $self->{_open};
-            return unless $self->{_ws};
+            sub {
 
-            if (time() - $self->{_last_pong} > 90) {
-                $self->{_log}->warn('No pong received for 90s');
-                $self->_error_callback();
-                return;
+                delete $self->{_ping_timer};
+
+                return if $self->{_shutdown};
+                return unless $self->{_open};
+                return unless $self->{_ws};
+
+                if (time() - $self->{_last_pong} > 90) {
+
+                    $self->{_log}->warn(
+                        'Ping timeout'
+                    );
+
+                    $self->_error_callback();
+                    return;
+                }
+
+                eval {
+                    $self->_send_with_id(
+                        '"type":"ping"',
+                        MODE_PING
+                    );
+                };
+
+                if ($@) {
+                    $self->{_log}->error(
+                        "Ping failed: $@"
+                    );
+
+                    $self->_error_callback();
+                    return;
+                }
+
+                $self->_start_ping();
             }
-
-            eval {
-                $self->_send_with_id(
-                    '"type":"ping"',
-                    MODE_PING
-                );
-            };
-
-            if ($@) {
-                $self->{_log}->error("Ping failed: $@");
-                $self->_error_callback();
-                return;
-            }
-
-            $self->_start_ping();
-        }
-    );
+        );
 }
 
 sub _kill_timer {
@@ -248,6 +312,7 @@ sub _kill_timer {
 
 sub _connected_callback {
     my ($self) = @_;
+
     return unless $self;
 
     $self->{_log}->info('Connected');
@@ -262,6 +327,7 @@ sub _connected_callback {
 
 sub _error_callback {
     my ($self) = @_;
+
     return unless $self;
     return if $self->{_shutdown};
 
@@ -273,7 +339,6 @@ sub _error_callback {
     $self->close();
 
     my $cb = $self->{_on_error};
-
     eval { $cb->() if $cb; };
 
     $self->_schedule_reconnect('socket error');

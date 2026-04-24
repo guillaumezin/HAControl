@@ -116,7 +116,12 @@ sub state {
     if (@_ > 1) {
         $self->{_state_received} = 1;
         if (defined $state) {
-            $self->{_state} = $state;
+            if (($state eq 'unknown') || ($state eq 'unavailable')) {
+                $self->{_state} = '?';
+            }
+            else {
+                $self->{_state} = $state;
+            }
         }
         return $self;
     }

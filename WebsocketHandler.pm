@@ -196,6 +196,7 @@ sub _schedule_reconnect {
         return;
     }
 
+    $self->close();
     my $delay = $self->{_reconnect_delay};
 
     $self->{_reconnecting} = 1;
@@ -658,8 +659,38 @@ sub _ws_callback {
 
             my $entity = $ctx->{entity};
             return unless $entity;
+            
+            my $result = $decoded->{result};
 
-            $entity->analyse_services($decoded->{result});
+            my $empty = 0;
+
+            if (!defined $result) {
+                $empty = 1;
+            }
+            elsif (ref($result) eq 'HASH') {
+                $empty = !keys(%{$result});
+            }
+            elsif (ref($result) eq 'ARRAY') {
+                $empty = !@{$result};
+            }
+            else {
+                $empty = 1;
+            }
+
+            if ($empty) {
+                $self->{_log}->warn(
+                    'Empty services list received for entity ' .
+                    $entity->id() .
+                    ', reconnect later'
+                );
+
+                $self->close();
+                $self->_schedule_reconnect('empty services result');
+
+                return;
+            }
+            
+            $entity->analyse_services($result);
 
             if ($self->{_new_entities}->all_services_received()) {
 

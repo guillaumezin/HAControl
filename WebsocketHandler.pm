@@ -774,12 +774,14 @@ sub _ws_callback {
         if ($data->{a}) {
             $key = 'a';
             ($entity_id) = keys %{ $data->{a} };
+            return unless $entity_id;
             $entity = $self->{_new_entities}->by_id($entity_id);
             $is_added = 1;
         }
         elsif ($data->{c}) {
             $key = 'c';
             ($entity_id) = keys %{ $data->{c} };
+            return unless $entity_id;
             $entity = $self->{_entities}->by_id($entity_id);
         }
 

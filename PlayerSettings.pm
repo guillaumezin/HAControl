@@ -34,6 +34,7 @@ sub handler {
     my @alarmsObj = Slim::Utils::Alarm->getAlarms($client);
     my %savedAlarms;
     my %savedSnoozes;
+    my $shallReset = 0;    
 #    Data::Dump::dump(%domoAlarmsId);
 #    Data::Dump::dump(%domoSnoozesId);
     
@@ -54,7 +55,7 @@ sub handler {
         $prefsClass->set('alarms', \%savedAlarms);
         $prefsClass->set('snoozes', \%savedSnoozes);
         
-        Plugins::HAControl::Plugin::resetPref($client);
+        $shallReset = 1;
     }
     else {
         my $prefsAlarms = $prefsClass->get('alarms');
@@ -82,8 +83,12 @@ sub handler {
     $paramRef->{'alarms'} = \@alarms;
     
 #    Data::Dump::dump(\@alarms);
-  
-    return $class->SUPER::handler($client, $paramRef);    
+    
+    my $result = $class->SUPER::handler($client, $paramRef);
+    if ($shallReset) {
+        Plugins::HAControl::Plugin::resetPref($client);
+    }
+    return $result;
 }
 
 1;

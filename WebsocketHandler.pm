@@ -43,6 +43,7 @@ sub new {
 
         _ws    => undef,
         _open  => 0,
+        _connecting => 0,
         _ready => 0,
 
         _queue        => [],
@@ -59,6 +60,8 @@ sub new {
         _reconnect_delay => 5,
         _reconnect_max   => 300,
         _reconnecting    => 0,
+        _reconnect_scheduled => 0,
+        _ping_scheduled => 0,
 
         _ping_timer => undef,
         _last_pong  => time(),
@@ -86,10 +89,8 @@ sub shutdown {
     my ($self) = @_;
     return unless $self;
 
+    $self->{_reconnect_scheduled}=0;
     $self->{_shutdown} = 1;
-
-    $self->_kill_timer('_reconnect_timer');
-    $self->_kill_timer('_ping_timer');
 
     $self->close();
 }
@@ -100,12 +101,13 @@ sub close {
     $self->{_open}  = 0;
     $self->{_ready} = 0;
 
-    $self->_kill_timer('_ping_timer');
+    Slim::Utils::Timers::killTimers($self, \&_reconnect_timer_cb);
+    $self->{_reconnect_scheduled} = 0;
+    Slim::Utils::Timers::killTimers($self, \&_ping_timer_cb);
+    $self->{_ping_scheduled} = 0;
 
     if ($self->{_ws}) {
-
         my $ws = delete $self->{_ws};
-
         eval { $ws->close(); };
     }
 }
@@ -115,6 +117,8 @@ sub connect {
 
     return unless $self;
     return if $self->{_shutdown};
+    
+    
 
     # Si déjà socket vivant, inutile
     if ($self->{_ws} && $self->{_open}) {
@@ -128,8 +132,8 @@ sub connect {
         'Opening websocket ' . $self->{_url}
     );
 
-    $self->{_open}  = 1;
     $self->{_ready} = 0;
+    $self->{_connecting} = 1;
     $self->{_pending} = {};
 
     my $ws = Slim::Networking::SimpleWS->new(
@@ -182,68 +186,79 @@ sub connect {
 # reconnect / timers
 ##############################################################################
 
+sub _reconnect_timer_cb {
+    my ($self) = @_;
+
+    $self->{_reconnect_scheduled} = 0;
+
+    return if $self->{_shutdown};
+    return if $self->{_open};
+
+    $self->{_log}->warn("Reconnect timer fired");
+
+    eval { $self->connect(); };
+
+    if ($@) {
+        $self->{_log}->error("Reconnect failed: $@");
+        $self->_schedule_reconnect("connect exception");
+    }
+}
+
 sub _schedule_reconnect {
     my ($self, $reason) = @_;
 
-    return unless $self;
     return if $self->{_shutdown};
+    return if $self->{_reconnect_scheduled};
 
-    # déjà planifié
-    if ($self->{_reconnect_timer}) {
-        $self->{_log}->debug(
-            'Reconnect already scheduled'
-        );
-        return;
-    }
-
-    $self->close();
     my $delay = $self->{_reconnect_delay};
 
+    $self->{_reconnect_scheduled} = 1;
     $self->{_reconnecting} = 1;
 
     $self->{_log}->warn(
         "Reconnect scheduled in ${delay}s ($reason)"
     );
 
-    $self->{_reconnect_timer} =
-        Slim::Utils::Timers::setTimer(
-            undef,
-            Time::HiRes::time() + $delay,
-
-            sub {
-
-                delete $self->{_reconnect_timer};
-
-                return if $self->{_shutdown};
-
-                eval {
-                    $self->{_log}->warn(
-                        'Reconnect timer fired'
-                    );
-
-                    $self->connect();
-                };
-
-                if ($@) {
-                    $self->{_log}->error(
-                        "Reconnect failed: $@"
-                    );
-
-                    $self->_schedule_reconnect(
-                        'connect exception'
-                    );
-                }
-            }
-        );
+    Slim::Utils::Timers::setTimer(
+        $self,
+        Time::HiRes::time() + $delay,
+        \&_reconnect_timer_cb
+    );
 
     $self->{_reconnect_delay} *= 2;
+    $self->{_reconnect_delay} = $self->{_reconnect_max}
+        if $self->{_reconnect_delay} > $self->{_reconnect_max};
+}
 
-    if ($self->{_reconnect_delay}
-        > $self->{_reconnect_max})
-    {
-        $self->{_reconnect_delay}
-            = $self->{_reconnect_max};
+sub _ping_timer_cb {
+    my ($self) = @_;
+
+    $self->{_ping_scheduled} = 0;
+
+    return if $self->{_shutdown};
+    return unless $self->{_open};
+    return unless $self->{_ws};
+
+    if (time() - $self->{_last_pong} > 90) {
+        $self->{_log}->warn("Ping timeout");
+        $self->_error_callback();
+        return;
     }
+
+    eval {
+        $self->_send_with_id(
+            '"type":"ping"',
+            MODE_PING
+        );
+    };
+
+    if ($@) {
+        $self->{_log}->error("Ping failed: $@");
+        $self->_error_callback();
+        return;
+    }
+
+    $self->_start_ping();
 }
 
 sub _start_ping {
@@ -251,51 +266,15 @@ sub _start_ping {
 
     return unless $self->{_open};
     return unless $self->{_ws};
+    return if $self->{_ping_scheduled};
 
-    $self->_kill_timer('_ping_timer');
+    $self->{_ping_scheduled} = 1;
 
-    $self->{_ping_timer} =
-        Slim::Utils::Timers::setTimer(
-            undef,
-            Time::HiRes::time() + 30,
-
-            sub {
-
-                delete $self->{_ping_timer};
-
-                return if $self->{_shutdown};
-                return unless $self->{_open};
-                return unless $self->{_ws};
-
-                if (time() - $self->{_last_pong} > 90) {
-
-                    $self->{_log}->warn(
-                        'Ping timeout'
-                    );
-
-                    $self->_error_callback();
-                    return;
-                }
-
-                eval {
-                    $self->_send_with_id(
-                        '"type":"ping"',
-                        MODE_PING
-                    );
-                };
-
-                if ($@) {
-                    $self->{_log}->error(
-                        "Ping failed: $@"
-                    );
-
-                    $self->_error_callback();
-                    return;
-                }
-
-                $self->_start_ping();
-            }
-        );
+    Slim::Utils::Timers::setTimer(
+        $self,
+        Time::HiRes::time() + 30,
+        \&_ping_timer_cb
+    );
 }
 
 sub _kill_timer {
@@ -316,13 +295,17 @@ sub _connected_callback {
 
     return unless $self;
 
-    $self->{_log}->info('Connected');
+    $self->{_log}->info("Connected");
 
+    Slim::Utils::Timers::killTimers($self, \&_reconnect_timer_cb);
+    
+    $self->{_reconnect_scheduled}=0;
     $self->{_reconnecting}    = 0;
+    $self->{_connecting}      = 0;
+    $self->{_open}            = 1;
     $self->{_reconnect_delay} = 5;
     $self->{_last_pong}       = time();
 
-    $self->_kill_timer('_reconnect_timer');
     $self->_start_ping();
 }
 
@@ -330,19 +313,19 @@ sub _error_callback {
     my ($self) = @_;
 
     return unless $self;
+    return if $self->{_reconnecting};    
     return if $self->{_shutdown};
 
     $self->{_log}->error('Websocket error');
 
     $self->{_ready} = 0;
+    $self->{_connecting} = 0;
     $self->{_open}  = 0;
 
-    $self->close();
+    $self->_schedule_reconnect('socket error');
 
     my $cb = $self->{_on_error};
     eval { $cb->() if $cb; };
-
-    $self->_schedule_reconnect('socket error');
 }
 
 ##############################################################################
@@ -491,6 +474,133 @@ sub on_error {
 }
 
 ##############################################################################
+# entities extract helpers
+##############################################################################
+
+sub _add_entity_if_valid {
+    my ($self, $id) = @_;
+    return unless defined $id;
+    return if ref($id);
+
+    ################################################
+    # filtre format domain.object
+    ################################################
+    return unless $id =~
+        /^[a-z0-9_]+\.[a-z0-9_]+$/i;
+
+    ################################################
+    # éviter doublon
+    ################################################
+    return if $self->{_new_entities}->by_id($id);
+
+    my $entity =
+        Plugins::HAControl::Entity->new($id, 0);
+
+    $self->{_new_entities}->add($entity);
+
+    $self->{_log}->debug("Entity found: $id");
+}
+
+sub _extract_entity_id_field {
+    my ($self, $val) = @_;
+    return unless defined $val;
+
+    if (!ref($val)) {
+        $self->_add_entity_if_valid($val);
+        return;
+    }
+
+    if (ref($val) eq 'ARRAY') {
+        foreach my $e (@$val) {
+            $self->_add_entity_if_valid($e);
+        }
+    }
+}
+
+sub _extract_entities_recursive {
+    my ($self, $node) = @_;
+    return unless defined $node;
+
+    ############################################
+    # ARRAY
+    ############################################
+    if (ref($node) eq 'ARRAY') {
+        foreach my $item (@$node) {
+            $self->_extract_entities_recursive($item);
+        }
+        return;
+    }
+
+    ############################################
+    # HASH
+    ############################################
+    if (ref($node) eq 'HASH') {
+
+        ################################################
+        # 1. entity => light.xxx
+        ################################################
+        $self->_add_entity_if_valid($node->{entity});
+
+        ################################################
+        # 2. camera_image
+        ################################################
+        $self->_add_entity_if_valid($node->{camera_image});
+
+        ################################################
+        # 3. entities => [...]
+        ################################################
+        if (ref($node->{entities}) eq 'ARRAY') {
+
+            foreach my $e (@{ $node->{entities} }) {
+
+                if (!ref($e)) {
+                    $self->_add_entity_if_valid($e);
+                }
+                elsif (ref($e) eq 'HASH') {
+                    $self->_add_entity_if_valid($e->{entity});
+                }
+            }
+        }
+
+        ################################################
+        # 4. target.entity_id
+        ################################################
+        if (ref($node->{target}) eq 'HASH') {
+            $self->_extract_entity_id_field(
+                $node->{target}{entity_id}
+            );
+        }
+
+        ################################################
+        # 5. service_data.entity_id
+        ################################################
+        if (ref($node->{service_data}) eq 'HASH') {
+            $self->_extract_entity_id_field(
+                $node->{service_data}{entity_id}
+            );
+        }
+
+        ################################################
+        # 6. data.entity_id
+        ################################################
+        if (ref($node->{data}) eq 'HASH') {
+            $self->_extract_entity_id_field(
+                $node->{data}{entity_id}
+            );
+        }
+
+        ################################################
+        # recurse all keys
+        ################################################
+        foreach my $k (keys %$node) {
+            $self->_extract_entities_recursive($node->{$k});
+        }
+
+        return;
+    }
+}
+
+##############################################################################
 # main callback
 ##############################################################################
 
@@ -531,11 +641,13 @@ sub _ws_callback {
     if ($decoded->{type} eq 'auth_ok') {
 
         $self->{_log}->debug('Auth OK');
-
-        $self->_send_with_id(
-            '"type":"lovelace/dashboards/list"',
-            MODE_GET_LIST_BOARDS
-        );
+        
+        if ($self->{_dashboard}) {
+            $self->_send_with_id(
+                '"type":"lovelace/dashboards/list"',
+                MODE_GET_LIST_BOARDS
+            );
+        }
         return;
     }
 
@@ -615,23 +727,9 @@ sub _ws_callback {
             $self->{_new_entities} =
                 Plugins::HAControl::Entities->new();
 
-            foreach my $view (@{ $decoded->{result}{views} || [] }) {
-
-                next unless $view->{badges};
-
-                foreach my $badge (@{ $view->{badges} }) {
-
-                    next unless ($badge->{type} || '') eq 'entity';
-                    next unless $badge->{entity};
-
-                    my $entity =
-                        Plugins::HAControl::Entity->new(
-                            $badge->{entity}, 0
-                        );
-
-                    $self->{_new_entities}->add($entity);
-                }
-            }
+            $self->_extract_entities_recursive(
+                $decoded->{result}
+            );
 
             foreach my $entity (
                 $self->{_new_entities}->all_entities()
@@ -684,7 +782,6 @@ sub _ws_callback {
                     ', reconnect later'
                 );
 
-                $self->close();
                 $self->_schedule_reconnect('empty services result');
 
                 return;

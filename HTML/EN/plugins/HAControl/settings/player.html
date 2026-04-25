@@ -5,14 +5,14 @@
                 [% settingTitle = settingTitle1 _ " " _ loop.count _ " - " _ settingTitle2 %]
                 [% settingName = "alarmId" _ alarm.id %]
 		[% WRAPPER settingGroup title=settingTitle desc="PLUGIN_HACONTROL_SETTINGS_ALARMDOC" %]
-                        <input type="text" name="[% settingName %]" id="[% settingName %]" value="[% alarm.alarm ? alarm.alarm : "0" %]"/>
+                        <input type="text" name="[% settingName %]" id="[% settingName %]" value="[% alarm.alarm %]"/>
 		[% END %]
                 [% settingTitle1 = "PLUGIN_HACONTROL_ALARM" | string %]
                 [% settingTitle2 = "PLUGIN_HACONTROL_SETTINGS_SNOOZE" | string %]
                 [% settingTitle = settingTitle1 _ " " _ loop.count _ " - " _ settingTitle2 %]
                 [% settingName = "snoozeId" _ alarm.id %]
 		[% WRAPPER settingGroup title=settingTitle desc="PLUGIN_HACONTROL_SETTINGS_SNOOZEDOC" %]
-                        <input type="text" name="[% settingName %]" id="[% settingName %]" value="[% alarm.snooze ? alarm.snooze : "0" %]"/>
+                        <input type="text" name="[% settingName %]" id="[% settingName %]" value="[% alarm.snooze %]"/>
 		[% END %]
 	[% END %]
 
@@ -24,7 +24,7 @@
                     <input type="text" name="pref_address" id="address" value="[% prefs.pref_address %]"/>
                 [% END %]
                 [% WRAPPER setting title="PLUGIN_HACONTROL_SETTINGS_HTTPS" desc="" %]
-                    <input type="checkbox" name="pref_https" id="https" value="1" [% IF prefs.pref_https %]checked="checked"[% END %]/>
+                    <input type="checkbox" name="pref_wss" id="wss" value="1" [% IF prefs.pref_wss %]checked="checked"[% END %]/>
                 [% END %]
                 [% WRAPPER setting title="PLUGIN_HACONTROL_SETTINGS_PASSWORD" desc="PLUGIN_HACONTROL_SETTINGS_DETAIL_PASSWORD" %]
                     <input type="password" name="pref_password" id="password" value="[% prefs.pref_password %]"/>
@@ -35,23 +35,32 @@
 
 <br/>
 
+                [% WRAPPER setting title="PLUGIN_HACONTROL_SETTINGS_MENU_ENABLE" desc="" %]
+                    <input type="checkbox" name="pref_menuEnable" id="menuEnable" value="1" [% IF prefs.pref_menuEnable %]checked="checked"[% END %]/>
+                [% END %]
                 [% WRAPPER setting title="PLUGIN_HACONTROL_SETTINGS_FILTERBYNAME" desc="PLUGIN_HACONTROL_SETTINGS_FILTEREMPYDISABLE" %]
                     <input type="text" name="pref_filterByName" id="filterByName" value="[% prefs.pref_filterByName %]"/>
                 [% END %]
 
 <br/>
 
-                [% WRAPPER setting title="PLUGIN_HACONTROL_SETTINGS_DIMMERASONOFF" desc="" %]
-                    <input type="checkbox" name="pref_dimmerAsOnOff" id="dimmerAsOnOff" value="1" [% IF prefs.pref_dimmerAsOnOff %]checked="checked"[% END %]/>
+                [% WRAPPER setting title="PLUGIN_HACONTROL_SETTINGS_DIMMERHIDESLIDER" desc="" %]
+                    <input type="checkbox" name="pref_dimmerHideSlider" id="dimmerHideSlider" value="1" [% IF prefs.pref_dimmerHideSlider %]checked="checked"[% END %]/>
                 [% END %]
-                [% WRAPPER setting title="PLUGIN_HACONTROL_SETTINGS_BLINDSPERCENTAGEASONOFF" desc="" %]
-                    <input type="checkbox" name="pref_blindsPercentageAsOnOff" id="blindsPercentageAsOnOff" value="1" [% IF prefs.pref_blindsPercentageAsOnOff %]checked="checked"[% END %]/>
+                [% WRAPPER setting title="PLUGIN_HACONTROL_SETTINGS_DIMMERHIDEONOFF" desc="" %]
+                    <input type="checkbox" name="pref_dimmerHideOnOff" id="dimmerHideOnOff" value="1" [% IF prefs.pref_dimmerHideOnOff %]checked="checked"[% END %]/>
+                [% END %]
+                [% WRAPPER setting title="PLUGIN_HACONTROL_SETTINGS_BLINDSPERCENTAGEHIDESLIDER" desc="" %]
+                    <input type="checkbox" name="pref_blindsPercentageHideSlider" id="blindsPercentageHideSlider" value="1" [% IF prefs.pref_blindsPercentageHideSlider %]checked="checked"[% END %]/>
+                [% END %]
+                [% WRAPPER setting title="PLUGIN_HACONTROL_SETTINGS_BLINDSPERCENTAGEHIDEONOFF" desc="" %]
+                    <input type="checkbox" name="pref_blindsPercentageHideOnOff" id="blindsPercentageHideOnOff" value="1" [% IF prefs.pref_blindsPercentageHideOnOff %]checked="checked"[% END %]/>
                 [% END %]
 
 <br/>
 
                 [% WRAPPER setting title="PLUGIN_HACONTROL_SETTINGS_ONOFFDEVICE" desc="PLUGIN_HACONTROL_SETTINGS_ONOFFDEVICEDOC" %]
-                    <input type="number" min="0" name="pref_deviceOnOff" id="deviceOnOff" value="[% prefs.pref_deviceOnOff %]"/>
+                    <input type="text" name="pref_deviceOnOff" id="deviceOnOff" value="[% prefs.pref_deviceOnOff %]"/>
                 [% END %]
 
 <br/>

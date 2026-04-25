@@ -20,7 +20,6 @@ sub add {
 
 sub by_id {
     my ($self, $id) = @_;
-    # Cherche dans la liste principale d'abord, puis dans hidden
     return $self->{_by_id}{$id};
 }
 
@@ -50,7 +49,6 @@ sub clear {
     $self->{_by_id}       = {};
     $self->{_by_commid}   = {};
     $self->{_list}        = [];
-    $self->{_hidden}      = [];
 }
 
 sub all_services_received {

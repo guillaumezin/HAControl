@@ -40,13 +40,10 @@ my $log = Slim::Utils::Log->addLogCategory({
 
 my $prefs = preferences('plugin.HAControl');
 
-#sub enabled {
-#}
-
 my $defaultPrefs = {
     'address'                   => '127.0.0.1',
     'port'                      => 8123,
-    'https'                     => 0,
+    'wss'                       => 0,
     'password'                  => '',
     'dimmerHideSlider'          => 0,
     'dimmerHideOnOff'           => 0,
@@ -54,6 +51,7 @@ my $defaultPrefs = {
     'blindsPercentageHideOnOff' => 0,
     'filterByName'              => '',
     'deviceOnOff'               => 0,
+    'menuEnable'                => 0,
     'generalAlarm'              => '',
     'generalSnooze'             => '',
 };
@@ -74,23 +72,46 @@ sub _clean_entity_id_in_error {
     $entity_id_in_error_timer{$client->id} = Slim::Utils::Timers::setTimer($client, Time::HiRes::time() + 600, \&_clean_entity_id_in_error);
 }
 
+sub _onInit {
+    my $client = shift;
+    _buildMenu($client);
+    _refreshMenu($client, 1);
+}
+
+sub _onError {
+    my $client = shift;
+    _refreshMenu($client, 0);
+}
+
 sub initPref {
     return if $PLUGIN_SHUTTING_DOWN;
     my $client = shift;
-
+    return unless $client;
+    
     $log->debug('Init pref');
 
     unless ($websockets{$client->id}) {
-        if ($prefs->client($client)->get('https') and not Slim::Networking::Async::HTTP->hasSSL()) {
-            $log->error('No HTTPS support built in, but https URL required');
+        if ($prefs->client($client)->get('wss') and not Slim::Networking::Async::HTTP->hasSSL()) {
+            $log->error('No SSL support built in, but wss required');
         }
         $prefs->client($client)->init($defaultPrefs);
-        my $url =
-            ($prefs->client($client)->get('https') ? 'wss://' : 'ws://') .
-            $prefs->client($client)->get('address') . ':' . $prefs->client($client)->get('port') . '/api/websocket';
-        $log->debug('Setting URL to '. $url);
-        $websockets{$client->id} = Plugins::HAControl::WebsocketHandler->new($url, $prefs->client($client)->get('password'), $prefs->client($client)->get('filterByName'), $log, sub { _buildMenu($client) }, sub { _buildMenu($client) });
-        $entity_id_in_error_timer{$client->id} = Slim::Utils::Timers::setTimer($client, Time::HiRes::time() + 600, \&_clean_entity_id_in_error);
+        if ($prefs->client($client)->get('address')) {
+            my $url =
+                ($prefs->client($client)->get('wss') ? 'wss://' : 'ws://') .
+                $prefs->client($client)->get('address') . ':' . $prefs->client($client)->get('port') . '/api/websocket';
+            $log->debug('Setting URL to '. $url);
+            if ($prefs->client($client)->get('menuEnable')) {
+                $log->debug('Menu enabled');
+            }
+            else {
+                $log->debug('Menu disabled');
+                _refreshMenu($client, 0);
+            }
+            my $dashboard = $prefs->client($client)->get('menuEnable') ? $prefs->client($client)->get('filterByName') : '';
+            $log->debug('Setting dashboard to '. $dashboard);
+            $websockets{$client->id} = Plugins::HAControl::WebsocketHandler->new($url, $prefs->client($client)->get('password'), $dashboard, $log, sub { _onInit($client) }, sub { _buildMenu($client) }, sub { _onError($client) });
+            $entity_id_in_error_timer{$client->id} = Slim::Utils::Timers::setTimer($client, Time::HiRes::time() + 600, \&_clean_entity_id_in_error);
+        }
     }
 }
 
@@ -700,6 +721,37 @@ sub macroString {
     }
 }
 
+sub _refreshMenu {
+    my $client = shift;
+    my $display = shift;
+
+    if (!$display || !$prefs->client($client)->get('menuEnable')) {
+        $log->debug('Delete menu');
+        Slim::Control::Jive::deleteMenuItem('pluginHAControlmenu', $client);
+        return;
+    }
+
+    my @menu = ({
+        stringToken => getDisplayName(),
+        id          => 'pluginHAControlmenu',
+        'icon-id' => Plugins::HAControl::Plugin->_pluginDataFor('icon'),
+        weight      => 50,
+        actions     => {
+            go => {
+                player => 0,
+                cmd => ['pluginHAControlmenu'],
+            }
+        }
+    });
+
+    $log->debug('Add menu');
+    Slim::Control::Jive::registerPluginMenu(
+        \@menu,
+        'home',
+        $client
+    );
+}
+
 sub initPlugin {
     my $class = shift;
 
@@ -743,7 +795,7 @@ sub initPlugin {
 #    Slim::Control::Jive::registerAppMenu(\@menu);
 #    $class->addNonSNApp();
 #    Slim::Control::Jive::registerPluginMenu(\@menu, 'extras');
-    Slim::Control::Jive::registerPluginMenu(\@menu, 'home');
+#    Slim::Control::Jive::registerPluginMenu(\@menu, 'home');
 
     # Subscribe to on/off
     Slim::Control::Request::subscribe(
@@ -758,7 +810,6 @@ sub initPlugin {
     );
 
     # Init pref when client connects
-    Slim::Control::Request::unsubscribe(\&clientEvent);
     Slim::Control::Request::subscribe(
         \&clientEvent,
         [['client'],['new','reconnect','disconnect']]

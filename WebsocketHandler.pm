@@ -209,6 +209,8 @@ sub _schedule_reconnect {
 
     return if $self->{_shutdown};
     return if $self->{_reconnect_scheduled};
+    
+    $self->close();
 
     my $delay = $self->{_reconnect_delay};
 

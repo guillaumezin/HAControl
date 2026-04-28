@@ -21,6 +21,10 @@ PLUGIN_HACONTROL_SETTINGS_ACCESS
 	EN	Communication with Home Assistant
 	FR	Communication avec Home Assistant
 
+PLUGIN_HACONTROL_SETTINGS_CONNECTION_ENABLE
+	EN	Activate connection for this player
+	FR	Activer la connexion pour cette platine
+
 PLUGIN_HACONTROL_SETTINGS_ADDRESS
 	EN	Home Assistant URL or IP address
 	FR	URL ou adresse IP de Home Assistant

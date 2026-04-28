@@ -43,6 +43,7 @@ sub new {
 
         _ws    => undef,
         _open  => 0,
+        _auth  => 0,
         _connecting => 0,
         _ready => 0,
 
@@ -89,6 +90,8 @@ sub shutdown {
     my ($self) = @_;
     return unless $self;
 
+    $self->{_log}->debug('shutdown');
+
     $self->{_reconnect_scheduled}=0;
     $self->{_shutdown} = 1;
 
@@ -98,7 +101,10 @@ sub shutdown {
 sub close {
     my ($self) = @_;
 
+    $self->{_log}->debug('close');
+
     $self->{_open}  = 0;
+    $self->{_auth}  = 0;
     $self->{_ready} = 0;
 
     Slim::Utils::Timers::killTimers($self, \&_reconnect_timer_cb);
@@ -106,7 +112,7 @@ sub close {
     Slim::Utils::Timers::killTimers($self, \&_ping_timer_cb);
     $self->{_ping_scheduled} = 0;
 
-    if ($self->{_ws}) {
+    if (defined $self->{_ws}) {
         my $ws = delete $self->{_ws};
         eval { $ws->close(); };
     }
@@ -118,9 +124,6 @@ sub connect {
     return unless $self;
     return if $self->{_shutdown};
     
-    
-
-    # Si déjà socket vivant, inutile
     if ($self->{_ws} && $self->{_open}) {
         $self->{_log}->debug('connect skipped: already open');
         return;
@@ -128,11 +131,13 @@ sub connect {
 
     $self->close();
 
+    $self->{_last_pong}       = time();
+    $self->_start_ping();
+
     $self->{_log}->info(
         'Opening websocket ' . $self->{_url}
     );
 
-    $self->{_ready} = 0;
     $self->{_connecting} = 1;
     $self->{_pending} = {};
 
@@ -238,8 +243,19 @@ sub _ping_timer_cb {
     $self->{_ping_scheduled} = 0;
 
     return if $self->{_shutdown};
-    return unless $self->{_open};
     return unless $self->{_ws};
+    
+    if (!$self->{_auth}) {
+        $self->{_log}->error("Auth timeout");
+        $self->_error_callback();
+        return;
+    }
+
+    if (!$self->{_ready}) {
+        $self->{_log}->error("Ready timeout");
+        $self->_error_callback();
+        return;
+    }
 
     if (time() - $self->{_last_pong} > 90) {
         $self->{_log}->warn("Ping timeout");
@@ -266,10 +282,11 @@ sub _ping_timer_cb {
 sub _start_ping {
     my ($self) = @_;
 
-    return unless $self->{_open};
     return unless $self->{_ws};
     return if $self->{_ping_scheduled};
 
+    $self->{_log}->debug("Start ping");
+    
     $self->{_ping_scheduled} = 1;
 
     Slim::Utils::Timers::setTimer(
@@ -277,15 +294,6 @@ sub _start_ping {
         Time::HiRes::time() + 30,
         \&_ping_timer_cb
     );
-}
-
-sub _kill_timer {
-    my ($self, $key) = @_;
-
-    if ($self->{$key}) {
-        eval { Slim::Utils::Timers::killSpecific($self->{$key}); };
-        delete $self->{$key};
-    }
 }
 
 ##############################################################################
@@ -306,9 +314,6 @@ sub _connected_callback {
     $self->{_connecting}      = 0;
     $self->{_open}            = 1;
     $self->{_reconnect_delay} = 5;
-    $self->{_last_pong}       = time();
-
-    $self->_start_ping();
 }
 
 sub _error_callback {
@@ -320,6 +325,7 @@ sub _error_callback {
 
     $self->{_log}->error('Websocket error');
 
+    $self->{_auth} = 0;
     $self->{_ready} = 0;
     $self->{_connecting} = 0;
     $self->{_open}  = 0;
@@ -609,6 +615,8 @@ sub _extract_entities_recursive {
 sub _ws_callback {
     my ($self, $buf) = @_;
     return unless $self;
+    return if $self->{_shutdown};
+    return unless $self->{_open};
 
     $self->{_log}->debug('Message: ' . $buf);
 
@@ -874,6 +882,7 @@ sub _ws_callback {
     if ($decoded->{type} eq 'event'
         && $decoded->{event})
     {
+        $self->{_log}->debug('Event received');
         ##############################################################
         # lovelace updated
         ##############################################################
@@ -882,6 +891,8 @@ sub _ws_callback {
             my $path =
                 $decoded->{event}{data}{url_path} || '';
 
+            $self->{_log}->debug('Dashboard update received for '.$path);
+            
             if ($path eq $self->{_url_path}) {
                 $self->{_log}->info(
                     'Dashboard changed, reconnecting'
@@ -901,21 +912,28 @@ sub _ws_callback {
         my $entity_id;
         my $entity;
 
+        $self->{_log}->debug('State (new or change) received');
+        
         if ($data->{a}) {
+            $self->{_log}->debug('New state received');
             $key = 'a';
             ($entity_id) = keys %{ $data->{a} };
+            $self->{_log}->debug('Entity id is '.$entity_id);
             return unless $entity_id;
             $entity = $self->{_new_entities}->by_id($entity_id);
             $is_added = 1;
         }
         elsif ($data->{c}) {
+            $self->{_log}->debug('Change state received');
             $key = 'c';
             ($entity_id) = keys %{ $data->{c} };
+            $self->{_log}->debug('Entity id is '.$entity_id);
             return unless $entity_id;
             $entity = $self->{_entities}->by_id($entity_id);
         }
 
         return unless $entity;
+        $self->{_log}->debug('Confirmed entity id is '.$entity->id());
 
         my $payload =
             $is_added
@@ -925,6 +943,7 @@ sub _ws_callback {
         my $attr = $payload->{a};
 
         if ($attr) {
+            $self->{_log}->debug('Attributes received');
 
             $entity->friendly_name($attr->{friendly_name})
                 if exists $attr->{friendly_name};
@@ -955,6 +974,7 @@ sub _ws_callback {
         }
 
         if (exists $payload->{s}) {
+            $self->{_log}->debug('State received: '.$payload->{s});
             $entity->state($payload->{s});
         }
 
@@ -962,8 +982,10 @@ sub _ws_callback {
         # hidden entity completed
         ##############################################################
         if ($entity->is_hidden()) {
+            $self->{_log}->debug('Hidden entity info received for '.$entity->id());
 
             if ($is_added) {
+                $self->{_log}->debug('Calling callback');
                 my $cb =
                     $self->{_subscribe_hidden_callback};
 
@@ -987,6 +1009,8 @@ sub _ws_callback {
             if ($self->{_new_entities}
                 ->all_states_received())
             {
+                $self->{_log}->debug('All states received, calling _on_init and _on_ready');
+
                 $self->{_entities} =
                     $self->{_new_entities};
 

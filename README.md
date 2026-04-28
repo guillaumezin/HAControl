@@ -13,17 +13,33 @@ To install the plugin, add the repository URL `https://guillaumezin.github.io/HA
 Usage
 -----
 
-1. For each player, go to the player settings page and choose Home Assistant Control settings.
-
-1. There you can configure URL access for Home Assistant, access token (you can generate one in the bottom of your [Home Assistant profile security panel](https://my.home-assistant.io/redirect/profile_security/)) and Home Assistant dashboard name where you want to grab entities to get them on the player screen.
-
+1. First you must create and copy in Home Assistant an access token. You can generate one in the bottom of your [Home Assistant profile security panel](https://my.home-assistant.io/redirect/profile_security/).
+    
+    ![Create access token](assets/createtoken.png)
+    
+1. You must also create a Home Assistant dashboard where you want to grab entities to get them on the player screen.
+    
+    ![Create a dasboard](assets/dashboard.png)
+    
+1. For each player, go to the player settings page and choose Home Assistant Control settings. Set the various parameters to your need and your liking. Pay attention to Home Assistant URL, the access token and the dashboard name you got previously.
+    
+    ![Enter parameters in Lyrion](assets/lyrionsettings.png)
+    
 1. You can also associate alarms and snoozes with Home Assistant devices (switch commands only). This can be useful to activate Home Assistant automation through a switch input for instance.
-
+    
 1. You can associate a Home Assistant entity that will turn on and off at the same time as a player.
-
-1. If you have [Custom Clock, Custom Clock Helper](http://wiki.slimdevices.com/index.php/Custom_Clock_applet) and [SuperDateTime (weather.com version 5.9.42 onwards)](https://sourceforge.net/projects/sdt-weather-com), Home Assistant can expose values based on entities state to Custom Clock Helper. The formatting is explained in Home Assistant control settings of the player settings page.
-
+    
+1. If you have [Custom Clock, Custom Clock Helper](http://wiki.slimdevices.com/index.php/Custom_Clock_applet) and [SuperDateTime (weather.com version 5.9.42 onwards)](https://sourceforge.net/projects/sdt-weather-com), Home Assistant can expose values based on entities state to Custom Clock Helper. The formatting is explained in Home Assistant control settings of the player settings page. To get the entity id, you must access to entity parameters and there you can copy the entity id in your clipboard.
+    
+    ![Access entity parameters](assets/haentityparam.png)
+    
+    ![Copy entity id](assets/haentityid.png)
+    
 1. Home Assistant control should appear in home menu of your Jive based players.
+    
+    ![Main menu entry of the plugin](assets/jivehome.png)
+    
+    ![Inside the menu entry of the plugin](assets/jiveinsidemenu.png)
 
 Limitations
 -----------

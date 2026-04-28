@@ -15,6 +15,7 @@ use Slim::Utils::Strings qw(cstring);
 use Plugins::HAControl::WebsocketHandler;
 use Plugins::HAControl::Entities;
 use Plugins::HAControl::Entity;
+use Scalar::Util qw(looks_like_number);
 
 my $PLUGIN_SHUTTING_DOWN = 0;
 
@@ -52,6 +53,7 @@ my $defaultPrefs = {
     'filterByName'              => '',
     'deviceOnOff'               => 0,
     'menuEnable'                => 0,
+    'connectionEnable'          => 0,
     'generalAlarm'              => '',
     'generalSnooze'             => '',
 };
@@ -74,12 +76,14 @@ sub _clean_entity_id_in_error {
 
 sub _onInit {
     my $client = shift;
+    $log->debug('_onInit');
     _buildMenu($client);
     _refreshMenu($client, 1);
 }
 
 sub _onError {
     my $client = shift;
+    $log->debug('_onError');
     _refreshMenu($client, 0);
 }
 
@@ -89,28 +93,30 @@ sub initPref {
     return unless $client;
     
     $log->debug('Init pref');
-
-    unless ($websockets{$client->id}) {
-        if ($prefs->client($client)->get('wss') and not Slim::Networking::Async::HTTP->hasSSL()) {
-            $log->error('No SSL support built in, but wss required');
-        }
-        $prefs->client($client)->init($defaultPrefs);
-        if ($prefs->client($client)->get('address')) {
-            my $url =
-                ($prefs->client($client)->get('wss') ? 'wss://' : 'ws://') .
-                $prefs->client($client)->get('address') . ':' . $prefs->client($client)->get('port') . '/api/websocket';
-            $log->debug('Setting URL to '. $url);
-            if ($prefs->client($client)->get('menuEnable')) {
-                $log->debug('Menu enabled');
+    
+    if ($prefs->client($client)->get('connectionEnable')) {
+        unless ($websockets{$client->id}) {
+            if ($prefs->client($client)->get('wss') and not Slim::Networking::Async::HTTP->hasSSL()) {
+                $log->error('No SSL support built in, but wss required');
             }
-            else {
-                $log->debug('Menu disabled');
-                _refreshMenu($client, 0);
+            $prefs->client($client)->init($defaultPrefs);
+            if ($prefs->client($client)->get('address')) {
+                my $url =
+                    ($prefs->client($client)->get('wss') ? 'wss://' : 'ws://') .
+                    $prefs->client($client)->get('address') . ':' . $prefs->client($client)->get('port') . '/api/websocket';
+                $log->debug('Setting URL to '. $url);
+                if ($prefs->client($client)->get('menuEnable')) {
+                    $log->debug('Menu enabled');
+                }
+                else {
+                    $log->debug('Menu disabled');
+                    _refreshMenu($client, 0);
+                }
+                my $dashboard = $prefs->client($client)->get('menuEnable') ? $prefs->client($client)->get('filterByName') : '';
+                $log->debug('Setting dashboard to '. $dashboard);
+                $websockets{$client->id} = Plugins::HAControl::WebsocketHandler->new($url, $prefs->client($client)->get('password'), $dashboard, $log, sub { _onInit($client) }, sub { _buildMenu($client) }, sub { _onError($client) });
+                $entity_id_in_error_timer{$client->id} = Slim::Utils::Timers::setTimer($client, Time::HiRes::time() + 600, \&_clean_entity_id_in_error);
             }
-            my $dashboard = $prefs->client($client)->get('menuEnable') ? $prefs->client($client)->get('filterByName') : '';
-            $log->debug('Setting dashboard to '. $dashboard);
-            $websockets{$client->id} = Plugins::HAControl::WebsocketHandler->new($url, $prefs->client($client)->get('password'), $dashboard, $log, sub { _onInit($client) }, sub { _buildMenu($client) }, sub { _onError($client) });
-            $entity_id_in_error_timer{$client->id} = Slim::Utils::Timers::setTimer($client, Time::HiRes::time() + 600, \&_clean_entity_id_in_error);
         }
     }
 }
@@ -592,8 +598,9 @@ sub _macroSubFunc {
     my $replaceStr = shift;
     my $func = shift;
     my $funcArg = shift;
+    my $isNumber = looks_like_number($replaceStr);
     my $result = eval {
-        if ($func eq 'truncate') {
+        if ($isNumber && ($func eq 'truncate')) {
             my $dec = $funcArg + 0; 
             if ($dec > 0) {
                 my $val = $replaceStr + 0.0;
@@ -604,13 +611,13 @@ sub _macroSubFunc {
                 return $replaceStr; 
             }
         }
-        elsif ($func eq 'ceil') {
+        elsif ($isNumber && ($func eq 'ceil')) {
             return sprintf('%d', ceil($replaceStr + 0.0));
         }
-        elsif ($func eq 'floor') {
+        elsif ($isNumber && ($func eq 'floor')) {
             return sprintf('%d', floor($replaceStr + 0.0));
         }
-        elsif ($func eq 'round') {
+        elsif ($isNumber && ($func eq 'round')) {
             my $dec = $funcArg + 0; 
             if ($dec > 0) {
                 my $val = $replaceStr + 0.0;

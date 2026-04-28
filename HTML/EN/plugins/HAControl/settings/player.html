@@ -20,6 +20,9 @@
 
 [% PROCESS settings/header.html %]
 
+                [% WRAPPER setting title="PLUGIN_HACONTROL_SETTINGS_CONNECTION_ENABLE" desc="" %]
+                    <input type="checkbox" name="pref_connectionEnable" id="connectionEnable" value="1" [% IF prefs.pref_connectionEnable %]checked="checked"[% END %]/>
+                [% END %]
                 [% WRAPPER setting title="PLUGIN_HACONTROL_SETTINGS_ADDRESS" desc="" %]
                     <input type="text" name="pref_address" id="address" value="[% prefs.pref_address %]"/>
                 [% END %]

@@ -12,8 +12,8 @@
 			<desc  lang="FR">Contrôle de vos entités Home Assistant depuis votre platine basée sur Jive. Le paramétrage se fait dans l'onglet platine</desc>
 			<category>tools</category>
 			<creator>Guillaume Zin</creator>
-			<url>https://guillaumezin.github.io/HAControl/hacontrol-v1.0.4.zip</url>			
-			<sha>92b7e29964454eda22de4abdb3d1c6d1818a9676</sha>
+			<url>https://guillaumezin.github.io/HAControl/hacontrol-v1.0.5.zip</url>
+			<sha>a2f959eb7d587de4abec9e2c78c93acc7810fe8a</sha>
 		</plugin>
 	</plugins>
 	

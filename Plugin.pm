@@ -15,6 +15,7 @@ use Slim::Utils::Strings qw(cstring);
 use Plugins::HAControl::WebsocketHandler;
 use Plugins::HAControl::Entities;
 use Plugins::HAControl::Entity;
+use Plugins::HAControl::Log;
 use Scalar::Util qw(looks_like_number);
 
 my $PLUGIN_SHUTTING_DOWN = 0;
@@ -22,6 +23,7 @@ my $PLUGIN_SHUTTING_DOWN = 0;
 my %idxTimers  = ();
 my %entity_id_in_error_timer = ();
 my %websockets = ();
+my %clientlogs  = ();
 my %menus = ();
 my $funcptr = undef;
 my @requestsQueue = ();
@@ -63,8 +65,26 @@ sub getPrefNames {
     return @prefNames;
 }
 
-sub _clean_entity_id_in_error {
+sub _trim {
+   return $_[0] =~ s/\A\s+|\s+\z//urg;
+}
+
+sub _log {
     my $client = shift;
+    
+    if ($client) {
+        unless ($clientlogs{$client->id}) {
+            $clientlogs{$client->id} = Plugins::HAControl::Log->new($log, $client->id);
+        }
+        return $clientlogs{$client->id};
+    }
+    else {
+        return $log;
+    }
+}
+
+sub _clean_entity_id_in_error {
+    my $client = shift || return;
 
     if (exists $entity_id_in_error_timer{$client->id}) {
         Slim::Utils::Timers::killSpecific($entity_id_in_error_timer{$client->id});
@@ -75,46 +95,45 @@ sub _clean_entity_id_in_error {
 }
 
 sub _onInit {
-    my $client = shift;
-    $log->debug('_onInit');
+    my $client = shift || return;
+    _log($client)->debug('_onInit');
     _buildMenu($client);
     _refreshMenu($client, 1);
 }
 
 sub _onError {
-    my $client = shift;
-    $log->debug('_onError');
+    my $client = shift || return;
+    _log($client)->debug('_onError');
     _refreshMenu($client, 0);
 }
 
 sub initPref {
     return if $PLUGIN_SHUTTING_DOWN;
-    my $client = shift;
-    return unless $client;
+    my $client = shift || return;
     
-    $log->debug('Init pref');
+    _log($client)->debug('Init pref');
     
     if ($prefs->client($client)->get('connectionEnable')) {
         unless ($websockets{$client->id}) {
             if ($prefs->client($client)->get('wss') and not Slim::Networking::Async::HTTP->hasSSL()) {
-                $log->error('No SSL support built in, but wss required');
+                _log($client)->error('No SSL support built in, but wss required');
             }
             $prefs->client($client)->init($defaultPrefs);
             if ($prefs->client($client)->get('address')) {
                 my $url =
                     ($prefs->client($client)->get('wss') ? 'wss://' : 'ws://') .
-                    $prefs->client($client)->get('address') . ':' . $prefs->client($client)->get('port') . '/api/websocket';
-                $log->debug('Setting URL to '. $url);
+                    _trim($prefs->client($client)->get('address')) . ':' . $prefs->client($client)->get('port') . '/api/websocket';
+                _log($client)->debug('Setting URL to '. $url);
                 if ($prefs->client($client)->get('menuEnable')) {
-                    $log->debug('Menu enabled');
+                    _log($client)->debug('Menu enabled');
                 }
                 else {
-                    $log->debug('Menu disabled');
+                    _log($client)->debug('Menu disabled');
                     _refreshMenu($client, 0);
                 }
-                my $dashboard = $prefs->client($client)->get('menuEnable') ? $prefs->client($client)->get('filterByName') : '';
-                $log->debug('Setting dashboard to '. $dashboard);
-                $websockets{$client->id} = Plugins::HAControl::WebsocketHandler->new($url, $prefs->client($client)->get('password'), $dashboard, $log, sub { _onInit($client) }, sub { _buildMenu($client) }, sub { _onError($client) });
+                my $dashboard = $prefs->client($client)->get('menuEnable') ? _trim($prefs->client($client)->get('filterByName')) : '';
+                _log($client)->debug('Setting dashboard to '. $dashboard);
+                $websockets{$client->id} = Plugins::HAControl::WebsocketHandler->new($url, _trim($prefs->client($client)->get('password')), $dashboard, _log($client), sub { _onInit($client) }, sub { _buildMenu($client) }, sub { _onError($client) });
                 $entity_id_in_error_timer{$client->id} = Slim::Utils::Timers::setTimer($client, Time::HiRes::time() + 600, \&_clean_entity_id_in_error);
             }
         }
@@ -124,21 +143,21 @@ sub initPref {
 sub clientEvent {
     return if $PLUGIN_SHUTTING_DOWN;
     my $request = shift;
-    my $client  = $request->client;
+    my $client = $request->client();
 
-    $log->debug('Client event');
+    _log($client)->debug('Client event');
 
     if (defined $client) {
-        $log->debug('Client event with client defined');
         initPref($client);
+        _log($client)->debug('Client event with client defined '.$client->id);
     }
 }
 
 sub resetPref {
     return if $PLUGIN_SHUTTING_DOWN;
-    my $client = shift;
+    my $client = shift || return;
 
-    $log->debug('Reset pref');
+    _log($client)->debug('Reset pref');
 
     if (exists $websockets{$client->id}) {
         $websockets{$client->id}->close();
@@ -147,30 +166,12 @@ sub resetPref {
     initPref($client);
 }
 
-sub _setToHACallback {
-    $log->debug('Got answer from HA after set');
-
-    $log->debug('done');
-}
-
-sub _setToHAErrorCallback {
-    my $http    = shift;
-    my $error   = $http->error;
-
-    if (defined $error) {
-        $log->error("Got error after set: $error");
-    }
-    else {
-        $log->error('No answer from HA after set');
-    }
-}
-
 sub needsClient {
     return 1;
 }
 
 sub _setToHA {
-    my $client = shift;
+    my $client = shift || return;
     my $idx = shift;
     my $cmd = shift;
     my $level = shift;
@@ -180,7 +181,7 @@ sub _setToHA {
 
 sub setToHA {
     my $request = shift;
-    my $client  = $request->client();
+    my $client = $request->client() || return;
     my $idx = $request->getParam('idx');
     my $cmd = $request->getParam('cmd');
     my $level = $request->getParam('level');
@@ -192,7 +193,7 @@ sub setToHA {
 
 sub setToHATimer{
     my $request = shift;
-    my $client  = $request->client();
+    my $client = $request->client() || return;
     my $idx = $request->getParam('idx');
     my $cmd = $request->getParam('cmd');
     my $level = $request->getParam('level');
@@ -209,13 +210,14 @@ sub setToHATimer{
 
 sub menuHADimmer {
     my $request = shift;
+    my $client = $request->client() || return;
     my $idx = $request->getParam('idx');
     my $level = $request->getParam('level');
     my $min = $request->getParam('min');
     my $max = $request->getParam('max');
     my $text = $request->getParam('text');
 
-    $log->debug('Slider menu');
+    _log($client)->debug('Slider menu');
     
     my $slider = {
         slider   => 1,
@@ -242,7 +244,7 @@ sub menuHADimmer {
 
     $request->setStatusDone();
 
-    $log->debug('done');
+    _log($client)->debug('done');
 }
 
 
@@ -261,7 +263,7 @@ sub _strMatch {
 }
 
 sub _buildMenu {
-    my $client = shift;
+    my $client = shift || return;
     
     if (!defined($client)) {
         return;
@@ -271,13 +273,13 @@ sub _buildMenu {
 
     my @entities = $websockets{$client->id}->entities();
 
-    $log->debug('Build menu after status change detected');
+    _log($client)->debug('Build menu after status change detected');
 
     foreach my $entity ( @entities ) {
-        $log->debug('Test entry for id '.$entity->id());
+        _log($client)->debug('Test entry for id '.$entity->id());
         next if $entity->is_hidden();
         if ($entity->is_selector()) {
-            $log->debug('Add selector entry for id '.$entity->id());
+            _log($client)->debug('Add selector entry for id '.$entity->id());
             my @options = $entity->options();
             my @choiceActions;
             my $index = 0;
@@ -310,7 +312,7 @@ sub _buildMenu {
             };
         }
         elsif ($entity->is_number() && $entity->is_slider()) {
-            $log->debug('Add number slider entry for id '.$entity->id());
+            _log($client)->debug('Add number slider entry for id '.$entity->id());
             push @menu, {
                 text     => $entity->friendly_name(),
                 actions  => {
@@ -329,7 +331,7 @@ sub _buildMenu {
             };
         }
         elsif ($entity->is_number()) {
-            $log->debug('Add number box entry for id '.$entity->id());
+            _log($client)->debug('Add number box entry for id '.$entity->id());
             push @menu, {
                 text     => $entity->friendly_name(),
                 nextWindow => 'parent',
@@ -356,7 +358,7 @@ sub _buildMenu {
         }
         elsif ($entity->is_cover_slider() || $entity->is_light_slider()) {
             if (($entity->is_cover_slider() && !$prefs->client($client)->get('blindsPercentageHideOnOff')) || ($entity->is_light_slider() && !$prefs->client($client)->get('dimmerHideOnOff'))) {
-                $log->debug('Add on/off slider entry for id '.$entity->id());
+                _log($client)->debug('Add on/off slider entry for id '.$entity->id());
                 push @menu, {
                     text     => $entity->friendly_name(),
                     checkbox => $entity->boolean_state(),
@@ -383,7 +385,7 @@ sub _buildMenu {
                 };
             }
             if (($entity->is_cover_slider() && !$prefs->client($client)->get('blindsPercentageHideSlider')) || ($entity->is_light_slider() && !$prefs->client($client)->get('dimmerHideSlider'))) {
-                $log->debug('Add slider entry for id '.$entity->id());
+                _log($client)->debug('Add slider entry for id '.$entity->id());
                 push @menu, {
                     text     => $entity->friendly_name(),
                     actions  => {
@@ -423,7 +425,7 @@ sub _buildMenu {
         }
         # Normal On/Off
         elsif ($entity->is_on_off()) {
-            $log->debug('Add on/off entry for id '.$entity->id());
+            _log($client)->debug('Add on/off entry for id '.$entity->id());
             push @menu, {
                 text     => $entity->friendly_name(),
                 checkbox => $entity->boolean_state(),
@@ -456,10 +458,10 @@ sub _buildMenu {
 
 sub getFromHA {
     my $request = shift;
-    my $client = $request->client();
+    my $client = $request->client() || return;
     my @menu = @{ $menus{$client->id} // [] };
 
-    $log->debug('Menu display called');
+    _log($client)->debug('Menu display called');
 
     my $numitems = scalar(@menu);
 
@@ -476,7 +478,7 @@ sub getFromHA {
 
     $request->setStatusDone();
 
-    $log->debug('done');
+    _log($client)->debug('done');
 }
 
 sub powerCallback {
@@ -509,10 +511,10 @@ sub setAlarmToHA {
     my %alarms;
     my %snoozes;
     initPref($client);
-    my $generalAlarm = $prefs->client($client)->get('generalAlarm');
-    my $generalSnooze = $prefs->client($client)->get('generalSnooze');
-    my $prefsAlarms = $prefs->client($client)->get('alarms');
-    my $prefsSnoozes = $prefs->client($client)->get('snoozes');
+    my $generalAlarm = _trim($prefs->client($client)->get('generalAlarm'));
+    my $generalSnooze = _trim($prefs->client($client)->get('generalSnooze'));
+    my $prefsAlarms = _trim($prefs->client($client)->get('alarms'));
+    my $prefsSnoozes = _trim($prefs->client($client)->get('snoozes'));
     if ($prefsAlarms) {
         %alarms = %{ $prefsAlarms };
     }
@@ -523,7 +525,7 @@ sub setAlarmToHA {
     #Data::Dump::dump($request);
 
     if ($alarmType eq 'sound') {
-        $log->debug('Alarm on to HA: '. $alarmId);
+        _log($client)->debug('Alarm on to HA: '. $alarmId);
         $idx = $alarms{$alarmId};
         $level = 1;
         if ($idx) {
@@ -534,7 +536,7 @@ sub setAlarmToHA {
         }
     }
     elsif ($alarmType eq 'end') {
-        $log->debug('Alarm off to HA: '. $alarmId);
+        _log($client)->debug('Alarm off to HA: '. $alarmId);
         $idx = $alarms{$alarmId};
         $level = 0;
         if ($idx) {
@@ -545,7 +547,7 @@ sub setAlarmToHA {
         }
     }
     elsif ($alarmType eq 'snooze') {
-        $log->debug('Snooze on to HA: '. $alarmId);
+        _log($client)->debug('Snooze on to HA: '. $alarmId);
         $idx = $snoozes{$alarmId};
         $level = 1;
         if ($idx) {
@@ -556,7 +558,7 @@ sub setAlarmToHA {
         }
     }
     elsif ($alarmType eq 'snooze_end') {
-        $log->debug('Snooze off to HA: '. $alarmId);
+        _log($client)->debug('Snooze off to HA: '. $alarmId);
         $idx = $snoozes{$alarmId};
         $level = 0;
         if ($idx) {
@@ -570,31 +572,33 @@ sub setAlarmToHA {
 
 sub _manageMacroStringQueue {
     my $request = shift;
+    my $client  = $request->client() || return;
 
     if (!$request) {
         $requestProcessing = 0;
-        $log->debug('Next request');
+        _log($client)->debug('Next request');
         $request = shift @requestsQueue;
     }
 
     if ($request) {
         if (!$requestProcessing) {
-            $log->debug('Processing request');
+            _log($client)->debug('Processing request');
             my $client = $request->client();
             _macroStringResult($request);
         }
         else {
             push @requestsQueue, $request;
             $request->setStatusProcessing();
-            $log->debug('Already processing, waiting for end of previous request');
+            _log($client)->debug('Already processing, waiting for end of previous request');
         }
     }
     else {
-        $log->debug('Request queue empty');
+        _log($client)->debug('Request queue empty');
     }
 }
 
 sub _macroSubFunc {
+    my $client = shift || return;
     my $replaceStr = shift;
     my $func = shift;
     my $funcArg = shift;
@@ -636,7 +640,7 @@ sub _macroSubFunc {
         }
     };
     if ($@) {
-        $log->error('Error while trying to eval macro function: [' . $@ . ']');
+        _log($client)->error('Error while trying to eval macro function: [' . $@ . ']');
         return $replaceStr;
     }
     else {
@@ -646,39 +650,40 @@ sub _macroSubFunc {
 
 sub _macroCallNextMacro {
     my $request = shift;
+    my $client = $request->client() || return;
     my $result = shift;
 
     $request->addResult('macroString', $result);
-    $log->debug('Result: ' . $result);
+    _log($client)->debug('Result: ' . $result);
 
     if (defined $funcptr && ref($funcptr) eq 'CODE') {
-        $log->debug('Calling next function');
+        _log($client)->debug('Calling next function');
         $request->addParam('format', $result);
         eval { &{$funcptr}($request) };
 
         # arrange for some useful logging if we fail
         if ($@) {
-            $log->error('Error while trying to run function coderef: [' . $@ . ']');
+            _log($client)->error('Error while trying to run function coderef: [' . $@ . ']');
             $request->setStatusBadDispatch();
             $request->dump('Request');
         }
     }
     else {
-        $log->debug('Done');
+        _log($client)->debug('Done');
         $request->setStatusDone();
     }
 }
 
 sub _macroStringResult {
     my $request = shift;
-    my $client = $request->client();
+    my $client = $request->client() || return;
     my $format = $request->getParam('format');
 #     $format = 'test ~sensor.ebusd_f47_outsidetemp_temp~shorten~2~';
     my $result = $format;
 
-    $log->debug('Search in results for ' . $format);
+    _log($client)->debug('Search in results for ' . $format);
     while ($format =~ /(~(\S+?)(~(\S+?))?(~(\S+?))?~)/g) {
-        $log->debug('Got match name');
+        _log($client)->debug('Got match name');
         my $whole = $1;
         my $id = $2;
         my $func = $4;
@@ -686,15 +691,15 @@ sub _macroStringResult {
 
         if ($websockets{$client->id}) {
             if ($websockets{$client->id}->is_entity_id_in_error($id)) {
-                $log->debug('Skip ' . $id);
+                _log($client)->debug('Skip ' . $id);
                 next;
             }
 
             my $entity = $websockets{$client->id}->entity_by_id($id);
             if ($entity) {
-                $log->debug('Found element name ' . $id);
-                my $replaceStr = _macroSubFunc($entity->state(), $func, $funcArg);
-                $log->debug('Will replace by: ' . $replaceStr);
+                _log($client)->debug('Found element name ' . $id);
+                my $replaceStr = _macroSubFunc($client, $entity->state(), $func, $funcArg);
+                _log($client)->debug('Will replace by: ' . $replaceStr);
                 $result =~ s/\Q${whole}\E/${replaceStr}/;
             }
             else {
@@ -712,10 +717,12 @@ sub _macroStringResult {
 
 sub macroString {
     my $request = shift;
+    my $client = $request->client() || return;
     my $format = $request->getParam('format');
 #     $format = 'test ~sensor.ebusd_f47_outsidetemp_temp~shorten~2~';
 
-    $log->debug('Inside CLI request macroString for ' . $format . ' status ' . $request->getStatusText());
+    initPref($client);
+    _log($client)->debug('Inside CLI request macroString for ' . $format . ' status ' . $request->getStatusText());
 
     # Check that there is a pattern for us
     if ($format =~ m/~\S+~/) {
@@ -723,17 +730,17 @@ sub macroString {
     }
     # No pattern, jump to next dispatched sdtMacroString
     else {
-        $log->debug('No pattern for us');
+        _log($client)->debug('No pattern for us');
         _macroCallNextMacro($request, $format);
     }
 }
 
 sub _refreshMenu {
-    my $client = shift;
+    my $client = shift || return;
     my $display = shift;
 
     if (!$display || !$prefs->client($client)->get('menuEnable')) {
-        $log->debug('Delete menu');
+        _log($client)->debug('Delete menu');
         Slim::Control::Jive::deleteMenuItem('pluginHAControlmenu', $client);
         return;
     }
@@ -751,7 +758,7 @@ sub _refreshMenu {
         }
     });
 
-    $log->debug('Add menu');
+    _log($client)->debug('Add menu');
     Slim::Control::Jive::registerPluginMenu(
         \@menu,
         'home',

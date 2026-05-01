@@ -513,8 +513,8 @@ sub setAlarmToHA {
     initPref($client);
     my $generalAlarm = _trim($prefs->client($client)->get('generalAlarm'));
     my $generalSnooze = _trim($prefs->client($client)->get('generalSnooze'));
-    my $prefsAlarms = _trim($prefs->client($client)->get('alarms'));
-    my $prefsSnoozes = _trim($prefs->client($client)->get('snoozes'));
+    my $prefsAlarms = $prefs->client($client)->get('alarms');
+    my $prefsSnoozes = $prefs->client($client)->get('snoozes');
     if ($prefsAlarms) {
         %alarms = %{ $prefsAlarms };
     }
@@ -526,7 +526,7 @@ sub setAlarmToHA {
 
     if ($alarmType eq 'sound') {
         _log($client)->debug('Alarm on to HA: '. $alarmId);
-        $idx = $alarms{$alarmId};
+        $idx = _trim($alarms{$alarmId});
         $level = 1;
         if ($idx) {
             _setToHA($client, $idx, $cmd, $level);
@@ -537,7 +537,7 @@ sub setAlarmToHA {
     }
     elsif ($alarmType eq 'end') {
         _log($client)->debug('Alarm off to HA: '. $alarmId);
-        $idx = $alarms{$alarmId};
+        $idx = _trim($alarms{$alarmId});
         $level = 0;
         if ($idx) {
             _setToHA($client, $idx, $cmd, $level);
@@ -548,7 +548,7 @@ sub setAlarmToHA {
     }
     elsif ($alarmType eq 'snooze') {
         _log($client)->debug('Snooze on to HA: '. $alarmId);
-        $idx = $snoozes{$alarmId};
+        $idx = _trim($snoozes{$alarmId});
         $level = 1;
         if ($idx) {
             _setToHA($client, $idx, $cmd, $level);
@@ -559,7 +559,7 @@ sub setAlarmToHA {
     }
     elsif ($alarmType eq 'snooze_end') {
         _log($client)->debug('Snooze off to HA: '. $alarmId);
-        $idx = $snoozes{$alarmId};
+        $idx = _trim($snoozes{$alarmId});
         $level = 0;
         if ($idx) {
             _setToHA($client, $idx, $cmd, $level);

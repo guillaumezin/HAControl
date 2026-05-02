@@ -897,6 +897,7 @@ sub _ws_callback {
                 $self->{_log}->info(
                     'Dashboard changed, reconnecting'
                 );
+                $self->close();
                 $self->connect();
                 return;
             }

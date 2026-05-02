@@ -29,7 +29,7 @@ my $funcptr = undef;
 my @requestsQueue = ();
 my $requestProcessing = 0;
 
-use constant CACHE_TIME              => 30;
+use constant PLUGIN_MENU_PREFIX => 'PLUGIN_HACONTROL_';
 
 sub getDisplayName {
     return 'PLUGIN_HACONTROL';
@@ -98,13 +98,20 @@ sub _onInit {
     my $client = shift || return;
     _log($client)->debug('_onInit');
     _buildMenu($client);
-    _refreshMenu($client, 1);
+    _displayMenu($client, 1);
+}
+
+sub _onChange {
+    my $client = shift || return;
+    _log($client)->debug('_onChange');
+    _buildMenu($client);
+    Slim::Control::Jive::refreshPluginMenus($client);
 }
 
 sub _onError {
     my $client = shift || return;
     _log($client)->debug('_onError');
-    _refreshMenu($client, 0);
+    _displayMenu($client, 0);
 }
 
 sub initPref {
@@ -129,11 +136,11 @@ sub initPref {
                 }
                 else {
                     _log($client)->debug('Menu disabled');
-                    _refreshMenu($client, 0);
+                    _displayMenu($client, 0);
                 }
                 my $dashboard = $prefs->client($client)->get('menuEnable') ? _trim($prefs->client($client)->get('filterByName')) : '';
                 _log($client)->debug('Setting dashboard to '. $dashboard);
-                $websockets{$client->id} = Plugins::HAControl::WebsocketHandler->new($url, _trim($prefs->client($client)->get('password')), $dashboard, _log($client), sub { _onInit($client) }, sub { _buildMenu($client) }, sub { _onError($client) });
+                $websockets{$client->id} = Plugins::HAControl::WebsocketHandler->new($url, _trim($prefs->client($client)->get('password')), $dashboard, _log($client), sub { _onInit($client) }, sub { _onChange($client) }, sub { _onError($client) });
                 $entity_id_in_error_timer{$client->id} = Slim::Utils::Timers::setTimer($client, Time::HiRes::time() + 600, \&_clean_entity_id_in_error);
             }
         }
@@ -221,6 +228,7 @@ sub menuHADimmer {
     
     my $slider = {
         slider   => 1,
+        id       => PLUGIN_MENU_PREFIX.'slider.'.$idx,
         min      => $min,
         max      => $max,
         text     => $text,
@@ -265,10 +273,6 @@ sub _strMatch {
 sub _buildMenu {
     my $client = shift || return;
     
-    if (!defined($client)) {
-        return;
-    }
-
     my @menu;
 
     my @entities = $websockets{$client->id}->entities();
@@ -302,6 +306,7 @@ sub _buildMenu {
             }
             push @menu, {
                 text          => $entity->friendly_name(),
+                id            => PLUGIN_MENU_PREFIX.$entity->id(),
                 selectedIndex => $index,
                 choiceStrings => [ @options ],
                 actions  => {
@@ -315,6 +320,7 @@ sub _buildMenu {
             _log($client)->debug('Add number slider entry for id '.$entity->id());
             push @menu, {
                 text     => $entity->friendly_name(),
+                id       => PLUGIN_MENU_PREFIX.$entity->id(),
                 actions  => {
                     go => {
                         player => 0,
@@ -334,6 +340,7 @@ sub _buildMenu {
             _log($client)->debug('Add number box entry for id '.$entity->id());
             push @menu, {
                 text     => $entity->friendly_name(),
+                id       => PLUGIN_MENU_PREFIX.$entity->id(),
                 nextWindow => 'parent',
                 input    => {
                     initialText => $entity->state(),
@@ -361,6 +368,7 @@ sub _buildMenu {
                 _log($client)->debug('Add on/off slider entry for id '.$entity->id());
                 push @menu, {
                     text     => $entity->friendly_name(),
+                    id       => PLUGIN_MENU_PREFIX.$entity->id(),
                     checkbox => $entity->boolean_state(),
                     actions  => {
                         on   => {
@@ -388,6 +396,7 @@ sub _buildMenu {
                 _log($client)->debug('Add slider entry for id '.$entity->id());
                 push @menu, {
                     text     => $entity->friendly_name(),
+                    id       => PLUGIN_MENU_PREFIX.$entity->id(),
                     actions  => {
                         go => {
                             player => 0,
@@ -408,6 +417,7 @@ sub _buildMenu {
         elsif ($entity->is_press()) {
             push @menu, {
                 text     => $entity->friendly_name(),
+                id       => PLUGIN_MENU_PREFIX.$entity->id(),
                 radio    => 0,
                 nextWindow => 'refresh',
                 actions  => {
@@ -428,6 +438,7 @@ sub _buildMenu {
             _log($client)->debug('Add on/off entry for id '.$entity->id());
             push @menu, {
                 text     => $entity->friendly_name(),
+                id       => PLUGIN_MENU_PREFIX.$entity->id(),
                 checkbox => $entity->boolean_state(),
                 actions  => {
                     on   => {
@@ -583,7 +594,6 @@ sub _manageMacroStringQueue {
     if ($request) {
         if (!$requestProcessing) {
             _log($client)->debug('Processing request');
-            my $client = $request->client();
             _macroStringResult($request);
         }
         else {
@@ -682,7 +692,7 @@ sub _macroStringResult {
     my $result = $format;
 
     _log($client)->debug('Search in results for ' . $format);
-    while ($format =~ /(~(\S+?)(~(\S+?))?(~(\S+?))?~)/g) {
+    while ($format =~ /(~([a-z0-9_]+?\.[a-z0-9_]+?)(~(\S+?))?(~(\S+?))?~)/g) {
         _log($client)->debug('Got match name');
         my $whole = $1;
         my $id = $2;
@@ -705,6 +715,7 @@ sub _macroStringResult {
             else {
                 $request->setStatusProcessing();
                 $requestProcessing = 1;
+                _log($client)->debug('Subscribe for ' . $id);
                 $websockets{$client->id}->subscribe_hidden_entity($id, sub { _macroStringResult($request) });
                 return;
             }
@@ -735,25 +746,25 @@ sub macroString {
     }
 }
 
-sub _refreshMenu {
+sub _displayMenu {
     my $client = shift || return;
     my $display = shift;
 
     if (!$display || !$prefs->client($client)->get('menuEnable')) {
         _log($client)->debug('Delete menu');
-        Slim::Control::Jive::deleteMenuItem('pluginHAControlmenu', $client);
+        Slim::Control::Jive::deleteMenuItem(PLUGIN_MENU_PREFIX, $client);
         return;
     }
 
     my @menu = ({
         stringToken => getDisplayName(),
-        id          => 'pluginHAControlmenu',
+        id          => PLUGIN_MENU_PREFIX,
         'icon-id' => Plugins::HAControl::Plugin->_pluginDataFor('icon'),
         weight      => 50,
         actions     => {
             go => {
                 player => 0,
-                cmd => ['pluginHAControlmenu'],
+                cmd => [PLUGIN_MENU_PREFIX],
             }
         }
     });
@@ -791,20 +802,20 @@ sub initPlugin {
     Slim::Control::Request::addDispatch(['menuHADimmer'],[1, 0, 1, \&menuHADimmer]);
     Slim::Control::Request::addDispatch(['setToHA'],[1, 0, 1, \&setToHA]);
     Slim::Control::Request::addDispatch(['setToHATimer'],[1, 0, 1, \&setToHATimer]);
-    Slim::Control::Request::addDispatch(['pluginHAControlmenu'],[1, 0, 1, \&getFromHA]);
+    Slim::Control::Request::addDispatch([PLUGIN_MENU_PREFIX],[1, 0, 1, \&getFromHA]);
 
-    my @menu = ({
-        stringToken   => getDisplayName(),
-        id     => 'pluginHAControlmenu',
-        'icon-id' => Plugins::HAControl::Plugin->_pluginDataFor('icon'),
-        weight => 50,
-        actions => {
-            go => {
-                player => 0,
-                cmd => ['pluginHAControlmenu'],
-            }
-        }
-    });
+#    my @menu = ({
+#        stringToken   => getDisplayName(),
+#        id     => PLUGIN_MENU_PREFIX,
+#        'icon-id' => Plugins::HAControl::Plugin->_pluginDataFor('icon'),
+#        weight => 50,
+#        actions => {
+#            go => {
+#                player => 0,
+#                cmd => [PLUGIN_MENU_PREFIX],
+#            }
+#        }
+#    });
 
 #    Slim::Control::Jive::registerAppMenu(\@menu);
 #    $class->addNonSNApp();
@@ -839,7 +850,7 @@ sub shutdownPlugin {
     Slim::Control::Request::unsubscribe(\&setAlarmToHA);
     Slim::Control::Request::unsubscribe(\&powerCallback);
 
-    Slim::Control::Jive::deleteMenuItem('pluginHAControlmenu');
+    Slim::Control::Jive::deleteMenuItem(PLUGIN_MENU_PREFIX);
 
     foreach my $t (values %idxTimers) {
         eval { Slim::Utils::Timers::killSpecific($t); };

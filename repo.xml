@@ -7,14 +7,26 @@
 	
 	<plugins>
 		<plugin name="HAControl" version="1.0.0" minTarget="7.4" maxTarget="*">
-			<title lang="EN">Domoticz Control</title>
+			<title lang="EN">Home Assistant Control</title>
 			<desc  lang="EN">Control your Home Assistant entities from your Jive based player. Parameters are located in player settings</desc>
 			<desc  lang="FR">Contrôle de vos entités Home Assistant depuis votre platine basée sur Jive. Le paramétrage se fait dans l'onglet platine</desc>
 			<category>tools</category>
 			<creator>Guillaume Zin</creator>
-			<url>https://guillaumezin.github.io/HAControl/hacontrol-v1.0.8.zip</url>
-			<sha>983fab25ef4a56589db2c52ed987017cb73dd19c</sha>
+			<url>https://guillaumezin.github.io/HAControl/hacontrol-v1.0.9.zip</url>
+			<sha>f8296794d5dd22fabb4e97a5496a095eeaa7d968</sha>
 		</plugin>
 	</plugins>
+
+        <applets>
+                <applet name="ItemChange" version="1.0.0" minTarget="7.4" maxTarget="*">
+                        <title lang="EN">Item Change</title>
+                        <desc  lang="EN">Allows plugins to change item value dynamically, used by Home Assistance Control plugin</desc>
+                        <desc  lang="FR">Permet aux plugins de changer dynamiquement le contenu des menus, utilisés par le plugin Home Assistant Control</desc>
+                        <category>tools</category>
+                        <creator>Guillaume Zin</creator>
+                        <url>https://guillaumezin.github.io/HAControl/itemchange-v1.0.0.zip</url>
+                        <sha>97bc485222568745f5efcf76a6d0dee836794499</sha>
+                </applet>
+        </applets>
 	
 </extensions>

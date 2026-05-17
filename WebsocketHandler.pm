@@ -986,11 +986,11 @@ sub _ws_callback {
             $self->{_log}->debug('Hidden entity info received for '.$entity->id());
 
             if ($is_added) {
-                $self->{_log}->debug('Calling callback');
                 my $cb =
                     $self->{_subscribe_hidden_callback};
 
                 if ($cb) {
+                    $self->{_log}->debug('Calling _subscribe_hidden_callback callback');
                     eval { $cb->(); };
                     $self->{_subscribe_hidden_callback}
                         = undef;
@@ -1029,7 +1029,10 @@ sub _ws_callback {
         # normal update
         ##############################################################
         my $cb = $self->{_on_change};
-        eval { $cb->($entity) if $cb; };
+        if ($cb) {
+            $self->{_log}->debug('Calling _on_change callback');
+            eval { $cb->($entity) if $cb; };
+        }
 
         return;
     }

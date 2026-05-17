@@ -25,9 +25,9 @@ my %entity_id_in_error_timer = ();
 my %websockets = ();
 my %clientlogs  = ();
 my %menus = ();
+#my %indexmenus = ();
 my $funcptr = undef;
-my @requestsQueue = ();
-my $requestProcessing = 0;
+my %macroQueues;
 
 use constant PLUGIN_MENU_PREFIX => 'PLUGIN_HACONTROL_';
 
@@ -103,9 +103,56 @@ sub _onInit {
 
 sub _onChange {
     my $client = shift || return;
-    _log($client)->debug('_onChange');
+    my $entity = shift || return;
+    #my $indexmenu = $indexmenus{$client->id};
+
+    _log($client)->debug('_onChange for entity '.$entity->id());
+    
+    #_log($client)->debug(
+    #    '_onChange for entity '.$entity->id().
+    #    ' index '.$indexmenu->{$entity->id}
+    #);
+    
+    #my $state;
+    #my $sendChange = 0;
+    
+    #if ($entity->is_selector()) {
+    #    my @options = $entity->options();
+    #    my $i = 1;
+    #    foreach my $option (@options) {
+    #        if ($option eq $entity->state()) {
+    #            $state = $i;
+    #            $sendChange = 1;
+    #            last;
+    #        }
+    #        $i++;
+    #    }
+    #}
+    #elsif ($entity->is_cover_slider() || $entity->is_light_slider()) {
+    #    if (($entity->is_cover_slider() && !$prefs->client($client)->get('blindsPercentageHideOnOff')) || ($entity->is_light_slider() && !$prefs->client($client)->get('dimmerHideOnOff'))) {
+    #        $state = $entity->boolean_state();
+    #        $sendChange = 1;
+    #    }
+    #}
+    #elsif ($entity->is_on_off()) {
+    #    $state = $entity->boolean_state();
+    #    $sendChange = 1;
+    #}
+    
     _buildMenu($client);
-    Slim::Control::Jive::refreshPluginMenus($client);
+    
+    #if ($sendChange) {
+    #    Slim::Control::Request::notifyFromArray(
+    #        $client,
+    #        [
+    #            'itemchange',
+    #            PLUGIN_MENU_PREFIX,
+    #            $indexmenu->{$entity->id},
+    #            $state,
+    #            $client->id()
+    #        ]
+    #    );
+    #}
 }
 
 sub _onError {
@@ -140,7 +187,7 @@ sub initPref {
                 }
                 my $dashboard = $prefs->client($client)->get('menuEnable') ? _trim($prefs->client($client)->get('filterByName')) : '';
                 _log($client)->debug('Setting dashboard to '. $dashboard);
-                $websockets{$client->id} = Plugins::HAControl::WebsocketHandler->new($url, _trim($prefs->client($client)->get('password')), $dashboard, _log($client), sub { _onInit($client) }, sub { _onChange($client) }, sub { _onError($client) });
+                $websockets{$client->id} = Plugins::HAControl::WebsocketHandler->new($url, _trim($prefs->client($client)->get('password')), $dashboard, _log($client), sub { _onInit($client) }, sub { my $entity = shift; _onChange($client, $entity) }, sub { _onError($client) });
                 $entity_id_in_error_timer{$client->id} = Slim::Utils::Timers::setTimer($client, Time::HiRes::time() + 600, \&_clean_entity_id_in_error);
             }
         }
@@ -168,6 +215,7 @@ sub resetPref {
 
     if (exists $websockets{$client->id}) {
         $websockets{$client->id}->close();
+        delete $macroQueues{$client->id};
         delete $websockets{$client->id};
     }
     initPref($client);
@@ -228,10 +276,8 @@ sub menuHADimmer {
     
     my $slider = {
         slider   => 1,
-        id       => PLUGIN_MENU_PREFIX.'slider.'.$idx,
         min      => $min,
         max      => $max,
-        text     => $text,
         initial  => $level,
         actions  => {
             do   => {
@@ -274,11 +320,14 @@ sub _buildMenu {
     my $client = shift || return;
     
     my @menu;
+    #my %indexmenu;
 
     my @entities = $websockets{$client->id}->entities();
 
     _log($client)->debug('Build menu after status change detected');
-
+    
+    my $index = 1;
+    
     foreach my $entity ( @entities ) {
         _log($client)->debug('Test entry for id '.$entity->id());
         next if $entity->is_hidden();
@@ -287,7 +336,7 @@ sub _buildMenu {
             my @options = $entity->options();
             my @choiceActions;
             my $index = 0;
-            my $i = 0;
+            my $i = 1;
             foreach my $option (@options) {
                 if ($option eq $entity->state()) {
                     $index = $i;
@@ -306,7 +355,6 @@ sub _buildMenu {
             }
             push @menu, {
                 text          => $entity->friendly_name(),
-                id            => PLUGIN_MENU_PREFIX.$entity->id(),
                 selectedIndex => $index,
                 choiceStrings => [ @options ],
                 actions  => {
@@ -320,7 +368,9 @@ sub _buildMenu {
             _log($client)->debug('Add number slider entry for id '.$entity->id());
             push @menu, {
                 text     => $entity->friendly_name(),
-                id       => PLUGIN_MENU_PREFIX.$entity->id(),
+                window   => {
+                    windowId => PLUGIN_MENU_PREFIX.$entity->id(),
+                },
                 actions  => {
                     go => {
                         player => 0,
@@ -340,15 +390,14 @@ sub _buildMenu {
             _log($client)->debug('Add number box entry for id '.$entity->id());
             push @menu, {
                 text     => $entity->friendly_name(),
-                id       => PLUGIN_MENU_PREFIX.$entity->id(),
-                nextWindow => 'parent',
+                nextWindow => 'grandparent',
                 input    => {
                     initialText => $entity->state(),
                     len => 1,
                     allowedChars => '.0123456789',
                 },
                 window   => {
-                    text => $entity->friendly_name(),
+                    windowId => PLUGIN_MENU_PREFIX.$entity->id(),
                 },
                 actions  => {
                     go => {
@@ -368,7 +417,6 @@ sub _buildMenu {
                 _log($client)->debug('Add on/off slider entry for id '.$entity->id());
                 push @menu, {
                     text     => $entity->friendly_name(),
-                    id       => PLUGIN_MENU_PREFIX.$entity->id(),
                     checkbox => $entity->boolean_state(),
                     actions  => {
                         on   => {
@@ -392,11 +440,13 @@ sub _buildMenu {
                     },
                 };
             }
-            if (($entity->is_cover_slider() && !$prefs->client($client)->get('blindsPercentageHideSlider')) || ($entity->is_light_slider() && !$prefs->client($client)->get('dimmerHideSlider'))) {
+            elsif (($entity->is_cover_slider() && !$prefs->client($client)->get('blindsPercentageHideSlider')) || ($entity->is_light_slider() && !$prefs->client($client)->get('dimmerHideSlider'))) {
                 _log($client)->debug('Add slider entry for id '.$entity->id());
                 push @menu, {
                     text     => $entity->friendly_name(),
-                    id       => PLUGIN_MENU_PREFIX.$entity->id(),
+                    window   => {
+                        windowId => PLUGIN_MENU_PREFIX.$entity->id(),
+                    },
                     actions  => {
                         go => {
                             player => 0,
@@ -406,7 +456,6 @@ sub _buildMenu {
                                 level  => $entity->current_position(),
                                 min    => $entity->min(),
                                 max    => $entity->max(),
-                                #text   => cstring($client, 'PLUGIN_HACONTROL_INITIAL_VALUE').' '. $entity->unit() ? $entity->percent().' '.$entity->unit() : $entity->percent(),
                                 text   => '',
                             },
                         },
@@ -417,7 +466,6 @@ sub _buildMenu {
         elsif ($entity->is_press()) {
             push @menu, {
                 text     => $entity->friendly_name(),
-                id       => PLUGIN_MENU_PREFIX.$entity->id(),
                 radio    => 0,
                 nextWindow => 'refresh',
                 actions  => {
@@ -438,7 +486,6 @@ sub _buildMenu {
             _log($client)->debug('Add on/off entry for id '.$entity->id());
             push @menu, {
                 text     => $entity->friendly_name(),
-                id       => PLUGIN_MENU_PREFIX.$entity->id(),
                 checkbox => $entity->boolean_state(),
                 actions  => {
                     on   => {
@@ -462,9 +509,12 @@ sub _buildMenu {
                 },
             };
         }
+        #$indexmenu{$entity->id()} = $index;
+        $index++;
     }
 
     $menus{$client->id} = [@menu];
+    #$indexmenus{$client->id} = {%indexmenu};
 }
 
 sub getFromHA {
@@ -581,29 +631,82 @@ sub setAlarmToHA {
     }
 }
 
-sub _manageMacroStringQueue {
+sub _macroRequestTimeout {
     my $request = shift;
-    my $client  = $request->client() || return;
+    my $client = $request->client() || return;
+    _log($client)->error('Macro request timeout');
+    _finishRequest($request, 'setStatusBadDispatch');
+}
 
-    if (!$request) {
-        $requestProcessing = 0;
-        _log($client)->debug('Next request');
-        $request = shift @requestsQueue;
+sub _getMacroQueueState {
+    my $client = shift || return;
+
+    my $clientId = $client->id;
+
+    if (!exists $macroQueues{$clientId}) {
+
+        $macroQueues{$clientId} = {
+            processing => 0,
+            queue      => [],
+        };
+
+        _log($client)->debug('Created macro queue state');
     }
 
-    if ($request) {
-        if (!$requestProcessing) {
-            _log($client)->debug('Processing request');
-            _macroStringResult($request);
-        }
-        else {
-            push @requestsQueue, $request;
-            $request->setStatusProcessing();
-            _log($client)->debug('Already processing, waiting for end of previous request');
-        }
+    return $macroQueues{$clientId};
+}
+
+sub _manageMacroStringQueue {
+    my $request = shift || return;
+    my $client = $request->client() || return;
+    my $state = _getMacroQueueState($client);
+
+    if ($state->{processing}) {
+        push @{ $state->{queue} }, $request;
+        $request->setStatusProcessing();
+        _log($client)->debug(
+            'Already processing, queued request'
+        );
+        return;
+    }
+
+    $state->{processing} = 1;
+
+    _log($client)->debug(
+        'Start processing request'
+    );
+
+    _macroStringResult($request);
+}
+
+sub _finishRequest {
+    my ($request, $statusMethod) = @_;
+    my $client = $request->client() || return;
+    my $state = _getMacroQueueState($client);
+
+    return if $request->{_macro_finished};
+
+    $request->{_macro_finished} = 1;
+
+    Slim::Utils::Timers::killTimers($request, \&_macroRequestTimeout);
+
+    if ($statusMethod && $request->can($statusMethod)) {
+        $request->$statusMethod();
+    }
+
+    $state->{processing} = 0;
+
+    _log($client)->debug('Request finished');
+
+    my $next = shift @{ $state->{queue} };
+
+    if ($next) {
+        _log($client)->debug('Process next queued request');
+        $state->{processing} = 1;
+        _macroStringResult($next);
     }
     else {
-        _log($client)->debug('Request queue empty');
+        _log($client)->debug('Queue empty');
     }
 }
 
@@ -674,25 +777,25 @@ sub _macroCallNextMacro {
         # arrange for some useful logging if we fail
         if ($@) {
             _log($client)->error('Error while trying to run function coderef: [' . $@ . ']');
-            $request->setStatusBadDispatch();
             $request->dump('Request');
+            _finishRequest($request, 'setStatusBadDispatch');
         }
     }
     else {
         _log($client)->debug('Done');
-        $request->setStatusDone();
     }
 }
 
 sub _macroStringResult {
     my $request = shift;
     my $client = $request->client() || return;
+    my $state = _getMacroQueueState($client);
     my $format = $request->getParam('format');
-#     $format = 'test ~sensor.ebusd_f47_outsidetemp_temp~shorten~2~';
+#     $format = 'test ~hsensor.ebusd_f47_outsidetemp_temp~shorten~2~';
     my $result = $format;
 
     _log($client)->debug('Search in results for ' . $format);
-    while ($format =~ /(~([a-z0-9_]+?\.[a-z0-9_]+?)(~(\S+?))?(~(\S+?))?~)/g) {
+    while ($format =~ /(~h([a-z0-9_]+?\.[a-z0-9_]+?)(~(\S+?))?(~(\S+?))?~)/g) {
         _log($client)->debug('Got match name');
         my $whole = $1;
         my $id = $2;
@@ -713,30 +816,57 @@ sub _macroStringResult {
                 $result =~ s/\Q${whole}\E/${replaceStr}/;
             }
             else {
-                $request->setStatusProcessing();
-                $requestProcessing = 1;
                 _log($client)->debug('Subscribe for ' . $id);
-                $websockets{$client->id}->subscribe_hidden_entity($id, sub { _macroStringResult($request) });
+                Slim::Utils::Timers::killTimers($request, \&_macroRequestTimeout);
+
+                Slim::Utils::Timers::setTimer($request, Time::HiRes::time() + 30, \&_macroRequestTimeout);
+
+                $state->{processing} = 1;
+                $request->setStatusProcessing();
+
+                $websockets{$client->id}->subscribe_hidden_entity(
+                    $id,
+                    sub {
+                        return if $request->{_ha_macro_finished};
+
+                        eval {
+                            Slim::Utils::Timers::killTimers($request, \&_macroRequestTimeout);
+                            _macroStringResult($request);
+                        };
+
+                        if ($@) {
+                            _log($client)->error(
+                                'Macro callback error: ' . $@
+                            );
+                            _finishRequest(
+                                $request,
+                                'setStatusBadDispatch'
+                            );
+                        }
+                    }
+                );
+
                 return;
             }
         }
     }
 
     _macroCallNextMacro($request, $result);
-    _manageMacroStringQueue(undef);
+    _finishRequest($request, 'setStatusDone');
 }
 
 sub macroString {
     my $request = shift;
+    return if $request->{_ha_macro_finished};
     my $client = $request->client() || return;
     my $format = $request->getParam('format');
-#     $format = 'test ~sensor.ebusd_f47_outsidetemp_temp~shorten~2~';
+#     $format = 'test ~hsensor.ebusd_f47_outsidetemp_temp~shorten~2~';
 
     initPref($client);
     _log($client)->debug('Inside CLI request macroString for ' . $format . ' status ' . $request->getStatusText());
 
     # Check that there is a pattern for us
-    if ($format =~ m/~\S+~/) {
+    if ($format =~ m/~h\S+~/) {
         _manageMacroStringQueue($request);
     }
     # No pattern, jump to next dispatched sdtMacroString
@@ -803,6 +933,7 @@ sub initPlugin {
     Slim::Control::Request::addDispatch(['setToHA'],[1, 0, 1, \&setToHA]);
     Slim::Control::Request::addDispatch(['setToHATimer'],[1, 0, 1, \&setToHATimer]);
     Slim::Control::Request::addDispatch([PLUGIN_MENU_PREFIX],[1, 0, 1, \&getFromHA]);
+    Slim::Control::Request::addDispatch(['itemchange', '_windowid', '_index', '_state'],[1, 0, 0, sub { $log->debug('itemchange query') }]);
 
 #    my @menu = ({
 #        stringToken   => getDisplayName(),
@@ -867,10 +998,9 @@ sub shutdownPlugin {
     %idxTimers = ();
     %entity_id_in_error_timer = ();
     %websockets = ();
+    %macroQueues = ();
     %menus = ();
-
-    @requestsQueue = ();
-    $requestProcessing = 0;
+    #%indexmenus = ();
 }
 
 1;

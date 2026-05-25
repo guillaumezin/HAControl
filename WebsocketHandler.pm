@@ -919,8 +919,8 @@ sub _ws_callback {
             $self->{_log}->debug('New state received');
             $key = 'a';
             ($entity_id) = keys %{ $data->{a} };
-            $self->{_log}->debug('Entity id is '.$entity_id);
             return unless $entity_id;
+            $self->{_log}->debug('Entity id is '.$entity_id);
             $entity = $self->{_new_entities}->by_id($entity_id);
             $is_added = 1;
         }

@@ -1,0 +1,1 @@
+{"clockposx":"","backgroundtype":"","contributors":"tcutting, Barberousse","background":"","name":"SDT Big Weather 4days Home Assistant Alarm Celsius","items":null,"backgrounddynamic":"false","models":["radio"],"clockposy":""}

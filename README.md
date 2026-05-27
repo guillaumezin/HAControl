@@ -37,7 +37,7 @@ Usage
     
     A ready to use example is available here: [Custom clock helper example file](https://github.com/guillaumezin/HAControl/raw/refs/heads/main/examples/SDT%20Big%20Weather%204days%20Home%20Assistant%20Alarm%20Celsius%20-%20radio.txt)
     
-    ![Custom Clock example result](assets/SDT Big Weather 4days Home Assistant Alarm Celsius - radio - capture.jpg)
+    ![Custom Clock example result](assets/SDT-Big-Weather-4days-Home-Assistant-Alarm-Celsius-radio-capture.jpg)
     
 1. Home Assistant control should appear in home menu of your Jive based players.
     

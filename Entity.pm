@@ -25,6 +25,7 @@ sub new {
         _is_light_percent => 0,
         _is_number => 0,
         _is_slider => 0,
+        _is_timer => 0,
         _current_position => 0,
         _is_selector => 0,
         _is_press => 0,
@@ -74,6 +75,9 @@ sub analyse_services {
     }
     if (any { $_ eq "input_select.select_option" } @{ $services }) {
         $self->{_is_selector} = 1;
+    }
+    if (any { $_ eq "timer.start" } @{ $services }) {
+        $self->{_is_timer} = 1;
     }
 }
 
@@ -169,11 +173,11 @@ sub unit {
 sub boolean_state {
     my ($self) = @_;
 
-    if (($self->{_state} eq 'off') || ($self->{_state} eq 'closed')) {
-        return 0;
+    if (($self->{_state} eq 'on') || ($self->{_state} eq 'opened') || ($self->{_state} eq 'active')) {
+        return 1;
     }
     else {
-        return 1;
+        return 0;
     }
 }
 
@@ -256,13 +260,16 @@ sub is_selector {
 
 sub is_on_off {
     my ($self) = @_;
-    return $self->{_is_turn_on} && $self->{_is_turn_off};
+    return ($self->{_is_turn_on} && $self->{_is_turn_off}) || $self->{_is_timer};
 }
 
 sub _translate_service_on_off {
     my ($self,$level) = @_;
     if ($level) {
-        if ($self->{_is_cover}) {
+        if ($self->{_is_timer}) {
+            return 'start';
+        }
+        elsif ($self->{_is_cover}) {
             return 'open_cover';
         }
         else {
@@ -270,7 +277,10 @@ sub _translate_service_on_off {
         }
     }
     else {
-        if ($self->{_is_cover}) {
+        if ($self->{_is_timer}) {
+            return 'finish';
+        }
+        elsif ($self->{_is_cover}) {
             return 'close_cover';
         }
         else {

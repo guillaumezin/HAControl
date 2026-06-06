@@ -173,7 +173,7 @@ sub unit {
 sub boolean_state {
     my ($self) = @_;
 
-    if (($self->{_state} eq 'on') || ($self->{_state} eq 'opened') || ($self->{_state} eq 'active')) {
+    if (($self->{_state} eq 'on') || ('open' in $self->{_state}) || ($self->{_state} eq 'active')) {
         return 1;
     }
     else {

@@ -3,7 +3,7 @@ Home Assistant Control
 
 This is a [Squeezebox](http://www.mysqueezebox.com) (Squeezebox / Logitech Media / Lyrion Music  Server) plugin for controlling [Home Assistant](https://www.home-assistant.io) entities from your Jive based player screen (Squeezebox radio, Squeezebox Touch, UE Smart Radio with squeezebox firmware and [Jive Lite](https://github.com/ralph-irving/jivelite) and its derivatives).
 
-The plugin can control lights, covers, switches, button, boolean, select and number inputs.
+The plugin can control lights, covers, switches, button, boolean, select, timer and number inputs.
 
 Installation
 ------------

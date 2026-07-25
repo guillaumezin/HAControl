@@ -29,6 +29,8 @@ sub new {
         _current_position => 0,
         _is_selector => 0,
         _is_press => 0,
+        _is_automation => 0,
+        _is_script => 0,
         _unit => '',
         _min => 0,
         _max => 255,
@@ -48,6 +50,14 @@ sub analyse_services {
 
     if (any { $_ eq "cover.open_cover" } @{ $services }) {
         $self->{_is_cover} = 1;
+    }
+    if (any { $_ eq "script.turn_on" } @{ $services }) {
+        $self->{_is_script} = 1;
+        $self->{_is_press} = 1;
+    }
+    if (any { $_ eq "automation.trigger" } @{ $services }) {
+        $self->{_is_automation} = 1;
+        $self->{_is_press} = 1;
     }
     if (any { $_ eq "input_button.press" } @{ $services }) {
         $self->{_is_press} = 1;
@@ -368,7 +378,13 @@ sub create_call_service {
         return '"type":"call_service","domain":"'.$self->domain().'","service":"set_value","service_data":{"entity_id":"'.$self->id().'","value":'.$level.'}';
     }
     elsif ($cmd eq 'press')  {
-        if ($self->{_is_press}) {
+        if ($self->{_is_script}) {
+            return '"type":"call_service","domain":"'.$self->domain().'","service":"'.$self->short_name().'"';
+        }
+        if ($self->{_is_automation}) {
+            return '"type":"call_service","domain":"'.$self->domain().'","service":"trigger","service_data":{"entity_id":"'.$self->id().'","skip_condition":true}';
+        }
+        elsif ($self->{_is_press}) {
             return '"type":"call_service","domain":"'.$self->domain().'","service":"press","service_data":{"entity_id":"'.$self->id().'"}';
         }
         elsif (!$self->{_is_turn_on} && $self->{_is_turn_off}) {

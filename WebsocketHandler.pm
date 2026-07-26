@@ -57,16 +57,14 @@ sub new {
         _entities_id_in_error      => {},
         _subscribe_hidden_callback => undef,
 
-        _reconnect_timer => undef,
         _reconnect_delay => 5,
         _reconnect_max   => 300,
         _reconnecting    => 0,
         _reconnect_scheduled => 0,
         _ping_scheduled => 0,
 
-        _restart_timer     => undef,
-        _restart_scheduled => 0,
-        _restart_delay     => 5,
+        _restart_get_entities_scheduled => 0,
+        _restart_get_entities_delay => 5,
         _restart_max       => 300,
 
         _ping_timer => undef,
@@ -116,8 +114,8 @@ sub close {
     $self->{_reconnect_scheduled} = 0;
     Slim::Utils::Timers::killTimers($self, \&_ping_timer_cb);
     $self->{_ping_scheduled} = 0;
-    Slim::Utils::Timers::killTimers($self, \&_restart_timer_cb);
-    $self->{_restart_scheduled} = 0;
+    Slim::Utils::Timers::killTimers($self, \&_restart_get_entities_timer_cb);
+    $self->{_restart_get_entities_scheduled} = 0;
 
     if (defined $self->{_ws}) {
         my $ws = delete $self->{_ws};
@@ -303,59 +301,53 @@ sub _start_ping {
     );
 }
 
-sub _schedule_restart_state_machine {
+sub _schedule_restart_get_entities {
     my ($self, $reason) = @_;
 
     return if $self->{_shutdown};
-    return if $self->{_restart_scheduled};
+    return if $self->{_restart_get_entities_scheduled};
 
-    my $delay = $self->{_restart_delay};
+    my $delay = $self->{_restart_get_entities_delay};
 
-    $self->{_restart_scheduled} = 1;
+    $self->{_restart_get_entities_scheduled} = 1;
 
     $self->{_log}->warn(
-        "State machine restart scheduled in ${delay}s ($reason)"
+        "Get entities restart scheduled in ${delay}s ($reason)"
     );
 
     Slim::Utils::Timers::setTimer(
         $self,
         Time::HiRes::time() + $delay,
-        \&_restart_timer_cb
+        \&_restart_get_entities_timer_cb
     );
 
-    $self->{_restart_delay} *= 2;
-    $self->{_restart_delay} = $self->{_restart_max}
-        if $self->{_restart_delay} > $self->{_restart_max};
+    $self->{_restart_get_entities_delay} *= 2;
+    $self->{_restart_get_entities_delay} = $self->{_restart_max}
+        if $self->{_restart_get_entities_delay} > $self->{_restart_max};
 }
 
-sub _restart_timer_cb {
+sub _restart_get_entities_timer_cb {
     my ($self) = @_;
 
-    $self->{_restart_scheduled} = 0;
+    $self->{_restart_get_entities_scheduled} = 0;
 
     return if $self->{_shutdown};
     return unless $self->{_open};
 
     $self->{_log}->warn("Restart timer fired");
 
-    eval { $self->_restart_state_machine('timer'); };
+    eval { $self->_restart_get_entities('timer'); };
 
     if ($@) {
         $self->{_log}->error("Restart failed: $@");
-        $self->_schedule_restart_state_machine('restart exception');
+        $self->_schedule_restart_get_entities('restart exception');
     }
 }
 
-sub _restart_state_machine {
+sub _restart_get_entities {
     my ($self, $reason) = @_;
 
-    $self->{_log}->warn("Restarting state machine ($reason)");
-
-    ##################################################################
-    # reset old states
-    ##################################################################
-    $self->{_new_entities} = Plugins::HAControl::Entities->new();
-    $self->{_url_path}     = '';
+    $self->{_log}->warn("Restarting get entities ($reason)");
 
     for my $id (keys %{ $self->{_pending} }) {
         my $mode = $self->{_pending}{$id}{mode};
@@ -364,8 +356,9 @@ sub _restart_state_machine {
     }
 
     $self->_send_with_id(
-        '"type":"lovelace/dashboards/list"',
-        MODE_GET_LIST_BOARDS
+        '"type":"lovelace/config","url_path":"' .
+        $self->{_url_path} . '"',
+        MODE_GET_ENTITIES
     );
 }
 
@@ -865,7 +858,7 @@ sub _ws_callback {
                     ', restart later'
                 );
 
-                $self->_schedule_restart_state_machine('empty services result');
+                $self->_schedule_restart_get_entities('empty services result');
 
                 $self->_advance_queue();
 
@@ -1089,7 +1082,7 @@ sub _ws_callback {
 
                 $self->{_entities} =
                     $self->{_new_entities};
-                $self->{_restart_delay} = 5;
+                $self->{_restart_get_entities_delay} = 5;
 
                 my $cb = $self->{_on_init};
 

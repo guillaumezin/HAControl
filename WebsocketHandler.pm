@@ -64,6 +64,11 @@ sub new {
         _reconnect_scheduled => 0,
         _ping_scheduled => 0,
 
+        _restart_timer     => undef,
+        _restart_scheduled => 0,
+        _restart_delay     => 5,
+        _restart_max       => 300,
+
         _ping_timer => undef,
         _last_pong  => time(),
 
@@ -111,6 +116,8 @@ sub close {
     $self->{_reconnect_scheduled} = 0;
     Slim::Utils::Timers::killTimers($self, \&_ping_timer_cb);
     $self->{_ping_scheduled} = 0;
+    Slim::Utils::Timers::killTimers($self, \&_restart_timer_cb);
+    $self->{_restart_scheduled} = 0;
 
     if (defined $self->{_ws}) {
         my $ws = delete $self->{_ws};
@@ -188,7 +195,7 @@ sub connect {
 }
 
 ##############################################################################
-# reconnect / timers
+# reconnect / restart / timers
 ##############################################################################
 
 sub _reconnect_timer_cb {
@@ -296,6 +303,72 @@ sub _start_ping {
     );
 }
 
+sub _schedule_restart_state_machine {
+    my ($self, $reason) = @_;
+
+    return if $self->{_shutdown};
+    return if $self->{_restart_scheduled};
+
+    my $delay = $self->{_restart_delay};
+
+    $self->{_restart_scheduled} = 1;
+
+    $self->{_log}->warn(
+        "State machine restart scheduled in ${delay}s ($reason)"
+    );
+
+    Slim::Utils::Timers::setTimer(
+        $self,
+        Time::HiRes::time() + $delay,
+        \&_restart_timer_cb
+    );
+
+    $self->{_restart_delay} *= 2;
+    $self->{_restart_delay} = $self->{_restart_max}
+        if $self->{_restart_delay} > $self->{_restart_max};
+}
+
+sub _restart_timer_cb {
+    my ($self) = @_;
+
+    $self->{_restart_scheduled} = 0;
+
+    return if $self->{_shutdown};
+    return unless $self->{_open};
+
+    $self->{_log}->warn("Restart timer fired");
+
+    eval { $self->_restart_state_machine('timer'); };
+
+    if ($@) {
+        $self->{_log}->error("Restart failed: $@");
+        $self->_schedule_restart_state_machine('restart exception');
+    }
+}
+
+sub _restart_state_machine {
+    my ($self, $reason) = @_;
+
+    $self->{_log}->warn("Restarting state machine ($reason)");
+
+    ##################################################################
+    # reset old states
+    ##################################################################
+    $self->{_new_entities} = Plugins::HAControl::Entities->new();
+    $self->{_url_path}     = '';
+
+    for my $id (keys %{ $self->{_pending} }) {
+        my $mode = $self->{_pending}{$id}{mode};
+        delete $self->{_pending}{$id}
+            if $mode == MODE_GET_ENTITIES || $mode == MODE_GET_SERVICES;
+    }
+
+    $self->_send_with_id(
+        '"type":"lovelace/dashboards/list"',
+        MODE_GET_LIST_BOARDS
+    );
+}
+
 ##############################################################################
 # callbacks
 ##############################################################################
@@ -399,7 +472,7 @@ sub _send_or_enqueue {
     }
 }
 
-sub _on_ready {
+sub _advance_queue {
     my ($self) = @_;
 
     if (@{ $self->{_queue} }) {
@@ -786,13 +859,15 @@ sub _ws_callback {
             }
 
             if ($empty) {
-                $self->{_log}->warn(
+                $self->{_log}->error(
                     'Empty services list received for entity ' .
                     $entity->id() .
-                    ', reconnect later'
+                    ', restart later'
                 );
 
-                $self->_schedule_reconnect('empty services result');
+                $self->_schedule_restart_state_machine('empty services result');
+
+                $self->_advance_queue();
 
                 return;
             }
@@ -871,7 +946,7 @@ sub _ws_callback {
             $self->{_subscribe_hidden_callback} = undef;
         }
 
-        $self->_on_ready();
+        $self->_advance_queue();
         return;
     }
 
@@ -996,7 +1071,7 @@ sub _ws_callback {
                         = undef;
                 }
 
-                $self->_on_ready();
+                $self->_advance_queue();
             }
 
             return;
@@ -1010,16 +1085,17 @@ sub _ws_callback {
             if ($self->{_new_entities}
                 ->all_states_received())
             {
-                $self->{_log}->debug('All states received, calling _on_init and _on_ready');
+                $self->{_log}->debug('All states received, calling _on_init and _advance_queue');
 
                 $self->{_entities} =
                     $self->{_new_entities};
+                $self->{_restart_delay} = 5;
 
                 my $cb = $self->{_on_init};
 
                 eval { $cb->() if $cb; };
 
-                $self->_on_ready();
+                $self->_advance_queue();
             }
 
             return;

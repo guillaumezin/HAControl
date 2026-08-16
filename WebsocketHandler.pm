@@ -178,6 +178,7 @@ sub connect {
                 $self->{_log}->error(
                     "WS callback error: $@"
                 );
+                $self->_error_callback();
             }
         },
 
@@ -683,6 +684,7 @@ sub _ws_callback {
     return unless $self;
     return if $self->{_shutdown};
     return unless $self->{_open};
+    return unless $self->{_ws};
 
     $self->{_log}->debug('Message: ' . $buf);
 
